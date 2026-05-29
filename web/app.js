@@ -27,6 +27,17 @@ const sampleBtn = document.querySelector("#sampleBtn");
 const modelConfigSelect = document.querySelector("#modelConfigSelect");
 const analysisMode = document.querySelector("#analysisMode");
 const modelMissingHint = document.querySelector("#modelMissingHint");
+const currentModelName = document.querySelector("#currentModelName");
+const currentModelMeta = document.querySelector("#currentModelMeta");
+const currentApiMask = document.querySelector("#currentApiMask");
+const currentProviderName = document.querySelector("#currentProviderName");
+const currentBaseUrl = document.querySelector("#currentBaseUrl");
+const quickModelForm = document.querySelector("#quickModelForm");
+const quickProvider = document.querySelector("#quickProvider");
+const quickBaseUrl = document.querySelector("#quickBaseUrl");
+const quickApiKey = document.querySelector("#quickApiKey");
+const quickModelName = document.querySelector("#quickModelName");
+const quickTestModelBtn = document.querySelector("#quickTestModelBtn");
 
 const emptyReport = document.querySelector("#emptyReport");
 const reportContent = document.querySelector("#reportContent");
@@ -188,7 +199,7 @@ reviewBtn.addEventListener("click", async () => {
     finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
   } catch (err) {
     stopProgress();
-    showError(`${err.message} 如模型调用失败，请切换模型配置或检查 API 额度。`);
+    showError(`${err.message} 如模型调用失败，请切换模型配置，或检查 API Key、Provider 和模型名称。`);
   } finally {
     reviewBtn.disabled = false;
   }
@@ -233,6 +244,39 @@ resetModelFormBtn.addEventListener("click", resetModelForm);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", async () => copyText(buildMarkdownReport(lastReport), "Markdown 报告已复制。"));
 
+quickProvider.addEventListener("change", () => {
+  if (!quickBaseUrl.value || Object.values(providerDefaults).includes(quickBaseUrl.value)) {
+    quickBaseUrl.value = providerDefaults[quickProvider.value] || "";
+  }
+});
+
+quickModelForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await apiFetch("/api/model-configs", {
+      method: "POST",
+      body: JSON.stringify(readQuickModelForm(true)),
+    });
+    clearQuickModelForm();
+    await loadModelConfigs();
+    showNotice("保存成功", "API 和模型名称已保存到模型配置，可以直接开始评审。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+quickTestModelBtn.addEventListener("click", async () => {
+  try {
+    const data = await apiFetch("/api/model-configs/test", {
+      method: "POST",
+      body: JSON.stringify(readQuickModelForm(false)),
+    });
+    showNotice("连接测试", data.message || "连接测试成功。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
 window.addEventListener("popstate", () => route());
 
 async function authRequest(path, payload) {
@@ -242,9 +286,9 @@ async function authRequest(path, payload) {
     currentUser = data.user;
     renderAuthState();
     await loadModelConfigs();
-    navigate(currentUser.hasModelConfigs ? "/review" : "/settings/models");
+    navigate("/review");
     if (!currentUser.hasModelConfigs) {
-      showNotice("需要配置模型", "注册成功。请先在模型设置中心添加一个模型配置。");
+      showNotice("需要配置模型", "请在工作台顶部输入 API Key 和模型名称，保存后即可开始评审。");
     }
   } catch (err) {
     showError(err.message);
@@ -275,9 +319,14 @@ async function loadSession() {
 async function loadProviders() {
   const data = await rawFetch("/api/providers");
   providers = data.providers || [];
-  modelProvider.innerHTML = providers.map(item => `<option value="${escapeHtmlAttr(item)}">${escapeHtml(item)}</option>`).join("");
+  const options = providers.map(item => `<option value="${escapeHtmlAttr(item)}">${escapeHtml(item)}</option>`).join("");
+  modelProvider.innerHTML = options;
+  quickProvider.innerHTML = options;
   modelProvider.value = "Qwen";
+  quickProvider.value = "Qwen";
   modelBaseUrl.value = providerDefaults.Qwen;
+  quickBaseUrl.value = providerDefaults.Qwen;
+  quickModelName.value = "qwen-plus";
 }
 
 async function loadModelConfigs() {
@@ -287,6 +336,7 @@ async function loadModelConfigs() {
   currentUser.hasModelConfigs = modelConfigs.length > 0;
   renderModelSelect();
   renderModelConfigList();
+  renderWorkbenchStatus();
 }
 
 function renderAuthState() {
@@ -349,7 +399,29 @@ function renderModelSelect() {
     : `<option value="">请先添加模型配置</option>`;
   const defaultConfig = modelConfigs.find(item => item.is_default);
   if (defaultConfig) modelConfigSelect.value = defaultConfig.id;
+  renderWorkbenchStatus();
 }
+
+function renderWorkbenchStatus() {
+  const selected = modelConfigs.find(item => item.id === modelConfigSelect.value)
+    || modelConfigs.find(item => item.is_default)
+    || modelConfigs[0];
+  if (!selected) {
+    currentModelName.textContent = "未配置";
+    currentModelMeta.textContent = "请在下方输入 API Key 和模型名称，或进入完整模型设置。";
+    currentApiMask.textContent = "未保存";
+    currentProviderName.textContent = "未配置";
+    currentBaseUrl.textContent = "添加配置后会显示 Provider 和接口地址。";
+    return;
+  }
+  currentModelName.textContent = selected.model_name;
+  currentModelMeta.textContent = selected.is_default ? "默认模型配置" : "本次可选模型配置";
+  currentApiMask.textContent = selected.api_key_mask || "已保存";
+  currentProviderName.textContent = selected.provider;
+  currentBaseUrl.textContent = selected.base_url || "未填写 base_url";
+}
+
+modelConfigSelect.addEventListener("change", renderWorkbenchStatus);
 
 function renderModelConfigList() {
   if (!modelConfigList) return;
@@ -422,6 +494,21 @@ function readModelForm() {
     model_name: modelName.value,
     is_default: modelDefault.checked,
   };
+}
+
+function readQuickModelForm(isDefault) {
+  return {
+    provider: quickProvider.value,
+    base_url: quickBaseUrl.value,
+    api_key: quickApiKey.value,
+    model_name: quickModelName.value,
+    is_default: isDefault || modelConfigs.length === 0,
+  };
+}
+
+function clearQuickModelForm() {
+  quickApiKey.value = "";
+  quickModelName.value = "qwen-plus";
 }
 
 async function loadHistory() {
