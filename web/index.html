@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ReviewPilot</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="layout">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">RP</span>
+          <div>
+            <h1>ReviewPilot</h1>
+            <p>基于证据链的 AI PR Review 助手</p>
+          </div>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </header>
+
+      <section class="workspace">
+        <aside class="panel input-panel">
+          <label class="field">
+            <span>Public GitHub PR URL</span>
+            <input id="prUrl" placeholder="https://github.com/owner/repo/pull/1">
+          </label>
+          <div class="or-line">or paste unified diff</div>
+          <label class="field grow">
+            <span>Diff</span>
+            <textarea id="diffInput" spellcheck="false"></textarea>
+          </label>
+          <div class="actions">
+            <button id="sampleBtn" type="button">Load Sample</button>
+            <button id="reviewBtn" type="button" class="primary">Run Review</button>
+          </div>
+        </aside>
+
+        <section class="panel report-panel">
+          <div class="report-head">
+            <div>
+              <h2 id="reportTitle">Review Report</h2>
+              <p id="summaryText">输入公开 PR 链接或 diff 后开始分析。</p>
+            </div>
+            <span id="riskBadge" class="badge low">low</span>
+          </div>
+
+          <div class="metrics">
+            <div><span>Files</span><strong id="fileCount">0</strong></div>
+            <div><span>Evidence</span><strong id="evidenceCount">0</strong></div>
+            <div><span>Findings</span><strong id="findingCount">0</strong></div>
+          </div>
+
+          <div class="columns">
+            <section>
+              <h3>Changed Files</h3>
+              <div id="files" class="stack"></div>
+            </section>
+            <section>
+              <h3>Findings</h3>
+              <div id="findings" class="stack"></div>
+            </section>
+          </div>
+
+          <section class="tests">
+            <h3>Test Suggestions</h3>
+            <ul id="tests"></ul>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

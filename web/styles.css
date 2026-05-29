@@ -1,0 +1,295 @@
+:root {
+  --bg: #f4f6f9;
+  --panel: #fff;
+  --text: #17202a;
+  --muted: #667085;
+  --line: #d7dee8;
+  --accent: #2563eb;
+  --accent-dark: #1d4ed8;
+  --red: #b42318;
+  --amber: #a15c07;
+  --green: #027a48;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.layout {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  font-weight: 800;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+
+p,
+.field span,
+.status,
+.or-line {
+  color: var(--muted);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.4fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.07);
+}
+
+.input-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 680px;
+  padding: 16px;
+}
+
+.report-panel {
+  padding: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field.grow {
+  flex: 1;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+
+input {
+  height: 40px;
+  padding: 0 12px;
+}
+
+textarea {
+  min-height: 480px;
+  height: 100%;
+  resize: vertical;
+  padding: 12px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.or-line {
+  margin: 14px 0;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+.primary {
+  flex: 1;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.primary:hover {
+  background: var(--accent-dark);
+}
+
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.badge {
+  height: 28px;
+  min-width: 72px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.low {
+  background: #dcfae6;
+  color: var(--green);
+}
+
+.medium {
+  background: #fef0c7;
+  color: var(--amber);
+}
+
+.high {
+  background: #fee4e2;
+  color: var(--red);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.metrics div,
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.metrics span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metrics strong {
+  font-size: 24px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  gap: 16px;
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.card p,
+.tests li {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tests {
+  margin-top: 18px;
+}
+
+.tests ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.empty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  .workspace,
+  .columns,
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

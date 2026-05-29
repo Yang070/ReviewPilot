@@ -1,0 +1,21 @@
+diff --git a/src/auth.ts b/src/auth.ts
+index 1111111..2222222 100644
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -10,6 +10,12 @@ export function login(req, res) {
++  const userId = req.body.userId;
++  console.log("login user", userId);
++  if (req.body.redirect) {
++    document.body.innerHTML = req.body.redirect;
++  }
++  return issueToken(userId);
+ }
+diff --git a/src/payment.ts b/src/payment.ts
+index 3333333..4444444 100644
+--- a/src/payment.ts
++++ b/src/payment.ts
+@@ -21,6 +21,9 @@ export async function charge(order) {
++  // TODO: handle duplicate callback
++  const amount = Number(order.amount);
++  await gateway.charge(amount);
+ }
