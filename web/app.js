@@ -8,11 +8,14 @@ const settingsBtn = document.querySelector("#settingsBtn");
 const closeSettingsBtn = document.querySelector("#closeSettingsBtn");
 const logoutBtn = document.querySelector("#logoutBtn");
 const userLabel = document.querySelector("#userLabel");
-const statusBox = document.querySelector("#status");
 const messageDialog = document.querySelector("#messageDialog");
 const messageTitle = document.querySelector("#messageTitle");
 const messageText = document.querySelector("#messageText");
 const messageCloseBtn = document.querySelector("#messageCloseBtn");
+const operationStatus = document.querySelector("#operationStatus");
+const operationTitle = document.querySelector("#operationTitle");
+const operationText = document.querySelector("#operationText");
+const progressBar = document.querySelector("#progressBar");
 
 const prUrl = document.querySelector("#prUrl");
 const diffInput = document.querySelector("#diffInput");
@@ -39,8 +42,11 @@ const modulesBox = document.querySelector("#modules");
 const risksBox = document.querySelector("#risks");
 const commentsBox = document.querySelector("#comments");
 const limitationsBox = document.querySelector("#limitations");
+const copySummaryBtn = document.querySelector("#copySummaryBtn");
 
 let currentUser = null;
+let lastSummary = "";
+let progressTimer = null;
 
 const sampleDiff = `diff --git a/src/auth.ts b/src/auth.ts
 index 1111111..2222222 100644
@@ -124,7 +130,7 @@ settingsForm.addEventListener("submit", async (event) => {
     applyDefaultModel(currentUser.defaultModel);
     settingsDialog.close();
     renderAuthState();
-    setStatus("设置已保存");
+    showNotice("设置已保存", "新的 API Key 或默认模型将在下次评审时生效。");
   } catch (err) {
     showError(err.message);
   }
@@ -140,9 +146,10 @@ sampleBtn.addEventListener("click", () => {
 });
 
 reviewBtn.addEventListener("click", async () => {
-  setStatus("评审中...");
+  startProgress("正在评审", "正在解析 PR 链接和代码变更...");
   reviewBtn.disabled = true;
   try {
+    updateProgress(35, "正在构建文件变更概览和重点上下文...");
     const data = await apiFetch("/api/review", {
       method: "POST",
       body: JSON.stringify({
@@ -151,9 +158,11 @@ reviewBtn.addEventListener("click", async () => {
         model: selectedModel(),
       }),
     });
+    updateProgress(90, "正在整理评审报告...");
     renderReport(data);
-    setStatus("完成");
+    finishProgress("评审完成", "报告已生成，可以查看风险和复制 Review Comments。");
   } catch (err) {
+    stopProgress();
     showError(err.message);
   } finally {
     reviewBtn.disabled = false;
@@ -170,7 +179,7 @@ async function authRequest(path, payload) {
     currentUser = data.user;
     applyDefaultModel(currentUser.defaultModel);
     renderAuthState();
-    setStatus("已登录");
+    showNotice("登录成功", "已进入 ReviewPilot 工作台。");
   } catch (err) {
     showError(err.message);
   }
@@ -280,6 +289,7 @@ function renderReport(data) {
 
   reportTitle.textContent = overview.title || data.pr.title || "评审报告";
   summaryText.textContent = data.summary || "模型没有返回摘要。";
+  lastSummary = summaryText.textContent;
   riskBadge.textContent = data.riskLevel || "low";
   riskBadge.className = `badge ${data.riskLevel || "low"}`;
   fileCount.textContent = overview.changed_files ?? fileChanges.length;
@@ -410,13 +420,14 @@ function empty(text) {
   return `<div class="empty">${text}</div>`;
 }
 
-function setStatus(text) {
-  statusBox.textContent = text;
+function showError(text) {
+  messageTitle.textContent = "操作失败";
+  messageText.textContent = text;
+  messageDialog.showModal();
 }
 
-function showError(text) {
-  setStatus("出现错误");
-  messageTitle.textContent = "操作失败";
+function showNotice(title, text) {
+  messageTitle.textContent = title;
   messageText.textContent = text;
   messageDialog.showModal();
 }
@@ -437,11 +448,62 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy]");
   if (!button) return;
   try {
-    await navigator.clipboard.writeText(button.dataset.copy);
-    setStatus("Review Comment 已复制");
+    await copyText(button.dataset.copy, "Review Comment 已复制。");
   } catch {
     showError("复制失败，请手动选择文本复制。");
   }
 });
+
+copySummaryBtn.addEventListener("click", async () => {
+  if (!lastSummary) {
+    showError("当前还没有可复制的摘要。");
+    return;
+  }
+  await copyText(lastSummary, "摘要已复制");
+});
+
+async function copyText(text, successText) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice("复制成功", successText);
+  } catch {
+    showError("复制失败，请手动选择文本复制。");
+  }
+}
+
+function startProgress(title, text) {
+  operationStatus.classList.remove("hidden");
+  operationTitle.textContent = title;
+  operationText.textContent = text;
+  progressBar.style.width = "12%";
+  clearInterval(progressTimer);
+  let value = 12;
+  progressTimer = setInterval(() => {
+    value = Math.min(82, value + 6);
+    progressBar.style.width = `${value}%`;
+  }, 500);
+}
+
+function updateProgress(value, text) {
+  operationText.textContent = text;
+  progressBar.style.width = `${value}%`;
+}
+
+function finishProgress(title, text) {
+  clearInterval(progressTimer);
+  operationTitle.textContent = title;
+  operationText.textContent = text;
+  progressBar.style.width = "100%";
+  setTimeout(() => {
+    operationStatus.classList.add("hidden");
+    progressBar.style.width = "0";
+  }, 1800);
+}
+
+function stopProgress() {
+  clearInterval(progressTimer);
+  operationStatus.classList.add("hidden");
+  progressBar.style.width = "0";
+}
 
 loadSession();

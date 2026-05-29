@@ -256,9 +256,18 @@ def normalize_limitations(items: list, context_coverage: dict) -> list[str]:
     limitations = [str(item).strip() for item in items if str(item).strip()] if isinstance(items, list) else []
     limitations.append("AI Review 只能辅助发现问题，不能替代人工 Review 和测试验证。")
     if context_coverage["context_truncated"]:
-        limitations.append("本次 PR 较大，系统按文件优先级筛选了重点上下文，未分析文件需人工复核。")
+        limitations.append(
+            f"本次共有 {context_coverage['total_files']} 个变更文件，模型重点分析了 "
+            f"{context_coverage['analyzed_files']} 个文件；由于上下文较大，系统按文件优先级筛选了重点内容。"
+        )
     if context_coverage["skipped_files"]:
-        limitations.append("部分低优先级文件未进入模型上下文，主要包括 lock 文件、构建产物或静态资源。")
+        skipped = context_coverage["skipped_files"]
+        sample = "、".join(skipped[:5])
+        suffix = f" 等 {len(skipped)} 个文件" if len(skipped) > 5 else ""
+        limitations.append(
+            f"本次有 {len(skipped)} 个低优先级文件未进入模型重点上下文：{sample}{suffix}。"
+            "这些文件通常是 lock 文件、构建产物或静态资源，建议人工快速确认是否存在异常变更。"
+        )
     return dedupe(limitations)
 
 

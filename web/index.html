@@ -17,7 +17,6 @@
           </div>
         </div>
         <div class="userbar">
-          <span class="status" id="status">就绪</span>
           <span class="status hidden" id="userLabel"></span>
           <button id="settingsBtn" class="hidden" type="button">设置</button>
           <button id="logoutBtn" class="hidden" type="button">退出</button>
@@ -96,6 +95,14 @@
         </aside>
 
         <section class="panel report-panel">
+          <div id="operationStatus" class="operation-status hidden">
+            <div>
+              <strong id="operationTitle">正在评审</strong>
+              <p id="operationText">正在准备分析上下文...</p>
+            </div>
+            <div class="progress-track"><span id="progressBar"></span></div>
+          </div>
+
           <div class="report-head">
             <div>
               <h2 id="reportTitle">评审报告</h2>
@@ -104,47 +111,60 @@
             <span id="riskBadge" class="badge low">low</span>
           </div>
 
-          <div class="metrics">
+          <section class="result-section">
+            <div class="section-head">
+              <h3>顶部概览</h3>
+              <button id="copySummaryBtn" type="button">复制摘要</button>
+            </div>
+            <div class="metrics">
             <div><span>文件数</span><strong id="fileCount">0</strong></div>
             <div><span>新增行数</span><strong id="additionCount">0</strong></div>
             <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
             <div><span>风险数</span><strong id="findingCount">0</strong></div>
             <div><span>证据数</span><strong id="evidenceCount">0</strong></div>
             <div><span>综合评分</span><strong id="overallScore">0</strong></div>
-          </div>
+            </div>
+          </section>
 
-          <div class="review-flow">
-            <section>
+          <div class="section-grid">
+            <section class="result-section">
               <h3>PR 概览</h3>
               <div id="overviewBox" class="stack"></div>
             </section>
-            <section>
+            <section class="result-section">
               <h3>上下文覆盖范围</h3>
               <div id="coverageBox" class="stack"></div>
             </section>
           </div>
 
-          <div class="columns">
-            <section>
+          <div class="section-grid">
+            <section class="result-section">
               <h3>本次 PR 文件变更概览</h3>
               <div id="files" class="stack"></div>
-              <h3 class="section-gap">重点分析文件</h3>
+            </section>
+            <section class="result-section">
+              <h3>重点分析文件</h3>
               <div id="priorityFiles" class="stack"></div>
             </section>
-            <section>
+          </div>
+
+          <div class="section-grid">
+            <section class="result-section">
               <h3>主要变更模块</h3>
               <div id="modules" class="stack"></div>
-              <h3 class="section-gap">明确风险</h3>
+            </section>
+            <section class="result-section">
+              <h3>明确风险</h3>
               <div id="risks" class="stack"></div>
             </section>
           </div>
 
-          <div class="review-flow section-gap">
-            <section>
+          <div class="section-grid">
+            <section class="result-section">
               <h3>可复制 Review Comments</h3>
               <div id="comments" class="stack"></div>
             </section>
-            <section>
+            <section class="result-section">
               <h3>AI 分析限制</h3>
               <div id="limitations" class="stack"></div>
             </section>
