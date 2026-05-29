@@ -31,11 +31,14 @@ const deletionCount = document.querySelector("#deletionCount");
 const evidenceCount = document.querySelector("#evidenceCount");
 const findingCount = document.querySelector("#findingCount");
 const overallScore = document.querySelector("#overallScore");
+const overviewBox = document.querySelector("#overviewBox");
+const coverageBox = document.querySelector("#coverageBox");
 const filesBox = document.querySelector("#files");
+const priorityFilesBox = document.querySelector("#priorityFiles");
 const modulesBox = document.querySelector("#modules");
 const risksBox = document.querySelector("#risks");
 const commentsBox = document.querySelector("#comments");
-const truncatedNotice = document.querySelector("#truncatedNotice");
+const limitationsBox = document.querySelector("#limitations");
 
 let currentUser = null;
 
@@ -269,24 +272,54 @@ function renderReport(data) {
   const risks = data.risks || data.findings || [];
   const modules = data.changed_modules || [];
   const comments = data.review_comments || [];
+  const priorityFiles = data.priority_files || [];
+  const coverage = data.context_coverage || {};
+  const overview = data.pr_overview || {};
   const additions = fileChanges.reduce((sum, file) => sum + Number(file.additions || 0), 0);
   const deletions = fileChanges.reduce((sum, file) => sum + Number(file.deletions || 0), 0);
 
-  reportTitle.textContent = data.pr.title || "评审报告";
+  reportTitle.textContent = overview.title || data.pr.title || "评审报告";
   summaryText.textContent = data.summary || "模型没有返回摘要。";
   riskBadge.textContent = data.riskLevel || "low";
   riskBadge.className = `badge ${data.riskLevel || "low"}`;
-  fileCount.textContent = fileChanges.length;
-  additionCount.textContent = additions;
-  deletionCount.textContent = deletions;
-  evidenceCount.textContent = data.evidenceCount;
+  fileCount.textContent = overview.changed_files ?? fileChanges.length;
+  additionCount.textContent = overview.additions ?? additions;
+  deletionCount.textContent = overview.deletions ?? deletions;
+  evidenceCount.textContent = coverage.analyzed_files ?? 0;
   findingCount.textContent = risks.length;
   overallScore.textContent = data.overall_score ?? 0;
-  truncatedNotice.classList.toggle("hidden", !data.context_truncated);
+  overviewBox.innerHTML = renderOverview(overview, data.model);
+  coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? fileChanges.map(renderFile).join("") : empty("暂无文件");
+  priorityFilesBox.innerHTML = priorityFiles.length ? priorityFiles.map(renderPriorityFile).join("") : empty("暂无重点文件");
   modulesBox.innerHTML = modules.length ? modules.map(renderModule).join("") : empty("暂无模块总结");
   risksBox.innerHTML = risks.length ? risks.map(renderRisk).join("") : empty("未发现有明确证据的风险");
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
+  limitationsBox.innerHTML = (data.limitations || []).length ? data.limitations.map(renderLimitation).join("") : empty("暂无额外限制说明");
+}
+
+function renderOverview(overview, model) {
+  return `<article class="card">
+    <p><strong>标题：</strong>${escapeHtml(overview.title || "粘贴 diff 分析")}</p>
+    <p><strong>模型：</strong>${escapeHtml(model || "未返回")}</p>
+    <p><strong>规模：</strong>${overview.changed_files || 0} 个文件，+${overview.additions || 0} / -${overview.deletions || 0}</p>
+  </article>`;
+}
+
+function renderCoverage(coverage) {
+  const total = Number(coverage.total_files || 0);
+  const analyzed = Number(coverage.analyzed_files || 0);
+  const percent = total ? Math.round((analyzed / total) * 100) : 0;
+  const skipped = coverage.skipped_files || [];
+  const skippedText = skipped.length ? skipped.slice(0, 6).join(", ") : "无";
+  const suffix = skipped.length > 6 ? ` 等 ${skipped.length} 个文件` : "";
+  return `<article class="card">
+    <div class="coverage-bar"><span style="width:${percent}%"></span></div>
+    <p><strong>覆盖率：</strong>${analyzed}/${total} 个文件进入重点上下文，${percent}%</p>
+    <p><strong>策略：</strong>${escapeHtml(coverage.strategy || "按文件优先级选择重点上下文。")}</p>
+    <p><strong>跳过文件：</strong>${escapeHtml(skippedText + suffix)}</p>
+    <p><strong>是否筛选上下文：</strong>${coverage.context_truncated ? "是" : "否"}</p>
+  </article>`;
 }
 
 function renderFile(file) {
@@ -301,11 +334,20 @@ function renderFile(file) {
   </article>`;
 }
 
+function renderPriorityFile(file) {
+  return `<article class="card compact-card">
+    <div class="card-title">
+      <span>${escapeHtml(file.filename)}</span>
+      <span class="badge medium">${file.priority}</span>
+    </div>
+    <p>${escapeHtml(file.reason || "重点文件")}</p>
+  </article>`;
+}
+
 function renderModule(item) {
   return `<article class="card">
     <div class="card-title">
       <span>${escapeHtml(item.name)}</span>
-      <span class="badge ${item.risk_level || "low"}">${item.risk_level || "low"}</span>
     </div>
     <p>${escapeHtml(item.summary || "无总结")}</p>
     <p><strong>文件：</strong>${escapeHtml((item.files || []).join(", "))}</p>
@@ -313,14 +355,14 @@ function renderModule(item) {
 }
 
 function renderRisk(item) {
-  const line = item.line ? `:${item.line}` : "";
   return `<article class="card">
     <div class="card-title">
-      <span>${escapeHtml(item.file)}${line}</span>
-      <span class="badge ${item.severity}">${item.severity}</span>
+      <span>${escapeHtml(item.file)}</span>
+      <span class="badge ${item.risk_level}">${item.risk_level}</span>
     </div>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>原因：</strong>${escapeHtml(item.message)}</p>
+    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
+    <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
     <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
     <p><strong>置信度：</strong>${Math.round(item.confidence * 100)}%</p>
   </article>`;
@@ -331,10 +373,15 @@ function renderComment(item) {
   return `<article class="card">
     <div class="card-title">
       <span>${escapeHtml(typeText(item.type))}</span>
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.comment)}">复制</button>
     </div>
     ${file}
     <p>${escapeHtml(item.comment)}</p>
   </article>`;
+}
+
+function renderLimitation(item) {
+  return `<article class="card compact-card"><p>${escapeHtml(item)}</p></article>`;
 }
 
 function statusText(status) {
@@ -352,6 +399,7 @@ function typeText(type) {
     test: "测试建议",
     maintainability: "可维护性",
     question: "需要确认",
+    needs_human_check: "需要人工复核",
     praise: "正向反馈",
     follow_up: "后续建议",
   };
@@ -380,5 +428,20 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+function escapeHtmlAttr(value) {
+  return escapeHtml(value).replaceAll("'", "&#39;");
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy]");
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.dataset.copy);
+    setStatus("Review Comment 已复制");
+  } catch {
+    showError("复制失败，请手动选择文本复制。");
+  }
+});
 
 loadSession();

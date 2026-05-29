@@ -282,6 +282,13 @@ button:hover {
   gap: 16px;
 }
 
+.review-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
 .columns > section,
 .card,
 .report-panel,
@@ -309,6 +316,30 @@ button:hover {
   line-height: 1.5;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.compact-card {
+  padding: 10px 12px;
+}
+
+.coverage-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #e4e7ec;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.coverage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.copy-btn {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .card-title span:first-child {
@@ -385,6 +416,7 @@ button:hover {
   .workspace,
   .auth-grid,
   .model-grid,
+  .review-flow,
   .columns,
   .metrics {
     grid-template-columns: 1fr;

@@ -82,10 +82,18 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
     return files
 
 
+SOURCE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".php", ".rb", ".cs", ".cpp", ".c")
+PRIORITY_KEYWORDS = (
+    "router", "store", "context", "provider", "api", "service", "auth",
+    "permission", "login", "token", "session", "payment", "order", "billing",
+)
+LOW_VALUE_PARTS = ("dist/", "build/", "coverage/", "public/", "assets/", "static/")
+
+
 def build_evidence(files: list[ChangedFile], max_lines=80) -> tuple[list[dict], bool]:
     evidence = []
     truncated = False
-    ordered_files = sorted(files, key=lambda file: (is_lock_file(file.path), file.path))
+    ordered_files = priority_files(files)
     for file in ordered_files:
         for line in file.lines:
             if line.kind != "add":
@@ -109,6 +117,10 @@ def build_evidence(files: list[ChangedFile], max_lines=80) -> tuple[list[dict], 
     return evidence, truncated
 
 
+def priority_files(files: list[ChangedFile]) -> list[ChangedFile]:
+    return sorted(files, key=lambda file: (-priority_score(file), file.path))
+
+
 def summarize_files(files: list[ChangedFile]) -> list[dict]:
     return [{
         "filename": file.path,
@@ -119,7 +131,28 @@ def summarize_files(files: list[ChangedFile]) -> list[dict]:
         "hunks": len(file.hunks),
         "category": classify_file(file.path),
         "isLockFile": is_lock_file(file.path),
+        "priority": priority_score(file),
     } for file in files]
+
+
+def summarize_priority_files(files: list[ChangedFile], limit=8) -> list[dict]:
+    selected = []
+    for file in priority_files(files):
+        score = priority_score(file)
+        if score <= 0:
+            continue
+        selected.append({
+            "filename": file.path,
+            "status": file.status,
+            "additions": file.additions,
+            "deletions": file.deletions,
+            "category": classify_file(file.path),
+            "priority": score,
+            "reason": priority_reason(file),
+        })
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def classify_file(path: str) -> str:
@@ -139,6 +172,53 @@ def classify_file(path: str) -> str:
     if re.search(r"\.(tsx|jsx|vue|css|html)$", lowered):
         return "frontend"
     return "general"
+
+
+def priority_score(file: ChangedFile) -> int:
+    path = file.path.replace("\\", "/")
+    lowered = path.lower()
+    score = 0
+    if lowered.startswith(("src/", "app/", "server/", "backend/", "frontend/")):
+        score += 30
+    if lowered.endswith(SOURCE_EXTENSIONS):
+        score += 28
+    if any(keyword in lowered for keyword in PRIORITY_KEYWORDS):
+        score += 24
+    if classify_file(path) in {"auth", "payment", "data", "config", "frontend"}:
+        score += 14
+    changed = file.additions + file.deletions
+    if changed >= 80:
+        score += 12
+    elif changed >= 20:
+        score += 8
+    elif changed > 0:
+        score += 4
+    if is_lock_file(path):
+        score -= 60
+    if lowered.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp")):
+        score -= 50
+    if any(part in lowered for part in LOW_VALUE_PARTS):
+        score -= 35
+    return max(0, score)
+
+
+def priority_reason(file: ChangedFile) -> str:
+    reasons = []
+    path = file.path.replace("\\", "/")
+    lowered = path.lower()
+    if lowered.startswith(("src/", "app/", "server/", "backend/", "frontend/")):
+        reasons.append("核心代码目录")
+    if lowered.endswith(SOURCE_EXTENSIONS):
+        reasons.append("源代码文件")
+    matched = [keyword for keyword in PRIORITY_KEYWORDS if keyword in lowered]
+    if matched:
+        reasons.append("命中关键路径：" + ", ".join(matched[:3]))
+    changed = file.additions + file.deletions
+    if changed >= 20:
+        reasons.append(f"变更规模 {changed} 行")
+    if is_lock_file(path):
+        reasons.append("lock 文件降权")
+    return "；".join(reasons) or "普通变更文件"
 
 
 def is_lock_file(path: str) -> bool:
