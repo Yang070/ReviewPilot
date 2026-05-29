@@ -118,13 +118,16 @@
           </div>
           <form id="quickModelForm" class="quick-model-form">
             <label class="field"><span>Provider</span><select id="quickProvider"></select></label>
-            <label class="field"><span>Base URL</span><input id="quickBaseUrl" placeholder="https://..."></label>
             <label class="field"><span>API Key</span><input id="quickApiKey" type="password" placeholder="在这里输入 API Key"></label>
             <label class="field"><span>Model Name</span><input id="quickModelName" placeholder="qwen-plus"></label>
             <div class="quick-actions">
               <button id="quickTestModelBtn" type="button">测试连接</button>
               <button id="quickSaveModelBtn" class="primary" type="submit">保存为模型配置</button>
             </div>
+            <details class="advanced-field">
+              <summary>高级设置：Base URL 会根据 Provider 自动填写</summary>
+              <label class="field"><span>Base URL</span><input id="quickBaseUrl" placeholder="https://..."></label>
+            </details>
           </form>
         </section>
 
@@ -223,23 +226,40 @@
               </div>
             </section>
 
-            <div class="section-grid">
-              <section class="result-section"><h3>PR Overview</h3><div id="overviewBox" class="stack"></div></section>
-              <section class="result-section"><h3>Context Coverage</h3><div id="coverageBox" class="stack"></div></section>
+            <div class="report-tabs" id="reportTabs">
+              <button class="active" data-report-tab="overview" type="button">概览</button>
+              <button data-report-tab="files" type="button">文件</button>
+              <button data-report-tab="rules" type="button">规则</button>
+              <button data-report-tab="risks" type="button">风险</button>
+              <button data-report-tab="comments" type="button">建议</button>
+              <button data-report-tab="limits" type="button">限制</button>
             </div>
-            <div class="section-grid">
-              <section class="result-section"><h3>本次 PR 文件变更概览</h3><div id="files" class="stack"></div></section>
-              <section class="result-section"><h3>Risk-Aware File Ranking</h3><div id="priorityFiles" class="stack"></div></section>
+
+            <div class="report-pane" data-report-panel="overview">
+              <div class="section-grid">
+                <section class="result-section"><h3>PR Overview</h3><div id="overviewBox" class="stack"></div></section>
+                <section class="result-section"><h3>Context Coverage</h3><div id="coverageBox" class="stack"></div></section>
+              </div>
             </div>
-            <div class="section-grid">
-              <section class="result-section"><h3>Rule Findings</h3><div id="ruleFindings" class="stack"></div></section>
-              <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
+            <div class="report-pane hidden" data-report-panel="files">
+              <div class="section-grid">
+                <section class="result-section"><h3>本次 PR 文件变更概览</h3><div id="files" class="stack"></div></section>
+                <section class="result-section"><h3>Risk-Aware File Ranking</h3><div id="priorityFiles" class="stack"></div></section>
+              </div>
             </div>
-            <div class="section-grid">
+            <div class="report-pane hidden" data-report-panel="rules">
+              <div class="section-grid">
+                <section class="result-section"><h3>Rule Findings</h3><div id="ruleFindings" class="stack"></div></section>
+                <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
+              </div>
+            </div>
+            <div class="report-pane hidden" data-report-panel="risks">
               <section class="result-section"><h3>AI Risks</h3><div id="risks" class="stack"></div></section>
+            </div>
+            <div class="report-pane hidden" data-report-panel="comments">
               <section class="result-section"><h3>Review Comments</h3><div id="comments" class="stack"></div></section>
             </div>
-            <div class="section-grid single">
+            <div class="report-pane hidden" data-report-panel="limits">
               <section class="result-section"><h3>AI 分析限制</h3><div id="limitations" class="stack"></div></section>
             </div>
           </div>

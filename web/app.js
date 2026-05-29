@@ -65,6 +65,7 @@ const commentsBox = document.querySelector("#comments");
 const limitationsBox = document.querySelector("#limitations");
 const copySummaryBtn = document.querySelector("#copySummaryBtn");
 const exportMarkdownBtn = document.querySelector("#exportMarkdownBtn");
+const reportTabs = document.querySelector("#reportTabs");
 
 const modelForm = document.querySelector("#modelForm");
 const modelFormTitle = document.querySelector("#modelFormTitle");
@@ -242,7 +243,7 @@ testModelBtn.addEventListener("click", async () => {
 
 resetModelFormBtn.addEventListener("click", resetModelForm);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
-exportMarkdownBtn.addEventListener("click", async () => copyText(buildMarkdownReport(lastReport), "Markdown 报告已复制。"));
+exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
 
 quickProvider.addEventListener("change", () => {
   if (!quickBaseUrl.value || Object.values(providerDefaults).includes(quickBaseUrl.value)) {
@@ -275,6 +276,12 @@ quickTestModelBtn.addEventListener("click", async () => {
   } catch (err) {
     showError(err.message);
   }
+});
+
+reportTabs.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-report-tab]");
+  if (!button) return;
+  setReportTab(button.dataset.reportTab);
 });
 
 window.addEventListener("popstate", () => route());
@@ -554,6 +561,7 @@ function renderReport(data) {
   lastReport = data;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
+  setReportTab("overview");
   const fileChanges = data.file_changes || data.files || [];
   const risks = data.risks || data.findings || [];
   const modules = data.changed_modules || [];
@@ -696,18 +704,76 @@ function buildMarkdownReport(data) {
   if (!data) return "暂无报告";
   const risks = data.risks || [];
   const comments = data.review_comments || [];
+  const fileChanges = data.file_changes || [];
+  const ruleFindings = data.rule_findings || [];
+  const modules = data.changed_modules || [];
+  const coverage = data.context_coverage || {};
   return [
     `# ${data.pr_overview?.title || "ReviewPilot 报告"}`,
     "",
-    `## Summary`,
+    "## Summary",
     data.summary || "",
     "",
-    `## Risks`,
+    "## PR Overview",
+    `- 文件数：${data.pr_overview?.changed_files ?? fileChanges.length}`,
+    `- 新增/删除：+${data.pr_overview?.additions ?? 0} / -${data.pr_overview?.deletions ?? 0}`,
+    `- 使用模型：${data.model || "未返回"}`,
+    "",
+    "## Context Coverage",
+    `- 深度分析文件：${coverage.analyzed_files ?? 0}/${coverage.total_files ?? 0}`,
+    `- 策略：${coverage.strategy || "按文件风险分选择重点上下文"}`,
+    "",
+    "## Changed Files",
+    fileChanges.length ? fileChanges.map(item => `- ${item.filename}: ${item.status}，风险分 ${item.risk_score ?? item.priority ?? 0}，+${item.additions}/-${item.deletions}`).join("\n") : "- 暂无文件",
+    "",
+    "## Changed Modules",
+    modules.length ? modules.map(item => `- ${item.name}: ${item.summary}`).join("\n") : "- 暂无模块总结",
+    "",
+    "## Rule Findings",
+    ruleFindings.length ? ruleFindings.map(item => `- [${item.risk_level}] ${item.file}: ${item.issue}`).join("\n") : "- 规则层未发现需要提示的问题",
+    "",
+    "## Risks",
     risks.length ? risks.map(item => `- [${item.risk_level}] ${item.file}: ${item.issue}`).join("\n") : "- 未发现明确风险",
     "",
-    `## Review Comments`,
+    "## Review Comments",
     comments.length ? comments.map(item => `- ${item.file ? item.file + ": " : ""}${item.comment}`).join("\n") : "- 暂无建议",
   ].join("\n");
+}
+
+function downloadMarkdownReport(data) {
+  if (!data) {
+    showError("当前还没有可导出的报告。");
+    return;
+  }
+  const content = buildMarkdownReport(data);
+  const title = data.pr_overview?.title || "reviewpilot-report";
+  const filename = `${safeFilename(title)}.md`;
+  const blob = new Blob([content], {type: "text/markdown;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showNotice("导出成功", `Markdown 文件已开始下载：${filename}`);
+}
+
+function setReportTab(tab) {
+  document.querySelectorAll("[data-report-tab]").forEach(button => {
+    button.classList.toggle("active", button.dataset.reportTab === tab);
+  });
+  document.querySelectorAll("[data-report-panel]").forEach(panel => {
+    panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
+  });
+}
+
+function safeFilename(value) {
+  return String(value || "reviewpilot-report")
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, "-")
+    .slice(0, 80);
 }
 
 async function apiFetch(path, options = {}) {

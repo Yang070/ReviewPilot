@@ -254,7 +254,7 @@ small {
 
 .quick-model-form {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr 1.2fr 0.9fr auto;
+  grid-template-columns: 0.8fr 1.2fr 0.9fr auto;
   gap: 10px;
   align-items: end;
   border-top: 1px solid var(--line);
@@ -265,6 +265,24 @@ small {
   display: flex;
   gap: 8px;
   align-items: end;
+}
+
+.advanced-field {
+  grid-column: 1 / -1;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.advanced-field summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.advanced-field .field {
+  margin-top: 10px;
 }
 
 .page-panel {
@@ -552,6 +570,35 @@ button:hover {
 }
 
 .section-head h3 {
+  margin-bottom: 0;
+}
+
+.report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.report-tabs button {
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.report-tabs button.active {
+  border-color: var(--accent);
+  background: #fff;
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+
+.report-pane > .result-section {
   margin-bottom: 0;
 }
 
