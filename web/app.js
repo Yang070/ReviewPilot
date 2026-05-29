@@ -1,30 +1,39 @@
-const authView = document.querySelector("#authView");
-const appView = document.querySelector("#appView");
+const views = {
+  "/login": document.querySelector("#loginView"),
+  "/register": document.querySelector("#registerView"),
+  "/review": document.querySelector("#reviewView"),
+  "/history": document.querySelector("#historyView"),
+  "/settings/models": document.querySelector("#modelsView"),
+};
+
 const loginForm = document.querySelector("#loginForm");
 const registerForm = document.querySelector("#registerForm");
-const settingsDialog = document.querySelector("#settingsDialog");
-const settingsForm = document.querySelector("#settingsForm");
-const settingsBtn = document.querySelector("#settingsBtn");
-const closeSettingsBtn = document.querySelector("#closeSettingsBtn");
 const logoutBtn = document.querySelector("#logoutBtn");
 const userLabel = document.querySelector("#userLabel");
+const userMenu = document.querySelector("#userMenu");
+const menuBtn = document.querySelector("#menuBtn");
+const menuList = document.querySelector("#menuList");
+const brandBtn = document.querySelector("#brandBtn");
 const messageDialog = document.querySelector("#messageDialog");
 const messageTitle = document.querySelector("#messageTitle");
 const messageText = document.querySelector("#messageText");
 const messageCloseBtn = document.querySelector("#messageCloseBtn");
+
+const prUrl = document.querySelector("#prUrl");
+const diffInput = document.querySelector("#diffInput");
+const patchFile = document.querySelector("#patchFile");
+const reviewBtn = document.querySelector("#reviewBtn");
+const sampleBtn = document.querySelector("#sampleBtn");
+const modelConfigSelect = document.querySelector("#modelConfigSelect");
+const analysisMode = document.querySelector("#analysisMode");
+const modelMissingHint = document.querySelector("#modelMissingHint");
+
+const emptyReport = document.querySelector("#emptyReport");
+const reportContent = document.querySelector("#reportContent");
 const operationStatus = document.querySelector("#operationStatus");
 const operationTitle = document.querySelector("#operationTitle");
 const operationText = document.querySelector("#operationText");
 const progressBar = document.querySelector("#progressBar");
-
-const prUrl = document.querySelector("#prUrl");
-const diffInput = document.querySelector("#diffInput");
-const reviewBtn = document.querySelector("#reviewBtn");
-const sampleBtn = document.querySelector("#sampleBtn");
-const modelPreset = document.querySelector("#modelPreset");
-const customModel = document.querySelector("#customModel");
-const customModelField = document.querySelector("#customModelField");
-
 const reportTitle = document.querySelector("#reportTitle");
 const summaryText = document.querySelector("#summaryText");
 const riskBadge = document.querySelector("#riskBadge");
@@ -44,10 +53,36 @@ const risksBox = document.querySelector("#risks");
 const commentsBox = document.querySelector("#comments");
 const limitationsBox = document.querySelector("#limitations");
 const copySummaryBtn = document.querySelector("#copySummaryBtn");
+const exportMarkdownBtn = document.querySelector("#exportMarkdownBtn");
+
+const modelForm = document.querySelector("#modelForm");
+const modelFormTitle = document.querySelector("#modelFormTitle");
+const editingConfigId = document.querySelector("#editingConfigId");
+const modelProvider = document.querySelector("#modelProvider");
+const modelBaseUrl = document.querySelector("#modelBaseUrl");
+const modelApiKey = document.querySelector("#modelApiKey");
+const modelName = document.querySelector("#modelName");
+const modelDefault = document.querySelector("#modelDefault");
+const modelConfigList = document.querySelector("#modelConfigList");
+const testModelBtn = document.querySelector("#testModelBtn");
+const resetModelFormBtn = document.querySelector("#resetModelFormBtn");
+const historyList = document.querySelector("#historyList");
 
 let currentUser = null;
+let modelConfigs = [];
+let providers = [];
 let lastSummary = "";
+let lastReport = null;
 let progressTimer = null;
+let activeInputTab = "url";
+
+const providerDefaults = {
+  OpenAI: "https://api.openai.com/v1",
+  Qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  DeepSeek: "https://api.deepseek.com",
+  Claude: "https://api.anthropic.com/v1",
+  "Custom OpenAI-Compatible": "",
+};
 
 const sampleDiff = `diff --git a/src/auth.ts b/src/auth.ts
 index 1111111..2222222 100644
@@ -71,116 +106,146 @@ index 3333333..4444444 100644
 +  await gateway.charge(amount);
  }`;
 
+document.addEventListener("click", (event) => {
+  const routeButton = event.target.closest("[data-route]");
+  if (routeButton) {
+    navigate(routeButton.dataset.route);
+    menuList.classList.add("hidden");
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const copyButton = event.target.closest("[data-copy]");
+  if (copyButton) await copyText(copyButton.dataset.copy, "Review Comment 已复制。");
+});
+
+brandBtn.addEventListener("click", () => navigate(currentUser ? "/review" : "/login"));
+menuBtn.addEventListener("click", () => menuList.classList.toggle("hidden"));
+messageCloseBtn.addEventListener("click", () => messageDialog.close());
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const payload = {
+  await authRequest("/api/login", {
     username: document.querySelector("#loginUsername").value,
     password: document.querySelector("#loginPassword").value,
-  };
-  await authRequest("/api/login", payload);
+  });
 });
 
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const payload = {
+  await authRequest("/api/register", {
     username: document.querySelector("#registerUsername").value,
+    email: document.querySelector("#registerEmail").value,
     password: document.querySelector("#registerPassword").value,
-    apiKey: document.querySelector("#registerApiKey").value,
-    defaultModel: document.querySelector("#registerDefaultModel").value,
-  };
-  await authRequest("/api/register", payload);
+    confirmPassword: document.querySelector("#registerConfirmPassword").value,
+  });
 });
 
 logoutBtn.addEventListener("click", async () => {
   try {
     await apiFetch("/api/logout", {method: "POST"});
+  } finally {
     localStorage.removeItem("reviewpilot_token");
     currentUser = null;
+    modelConfigs = [];
     renderAuthState();
-  } catch (err) {
-    showError(err.message);
+    navigate("/login");
   }
 });
 
-settingsBtn.addEventListener("click", () => {
-  document.querySelector("#settingsApiKey").value = "";
-  document.querySelector("#settingsDefaultModel").value = currentUser?.defaultModel || "qwen-plus";
-  settingsDialog.showModal();
+document.querySelectorAll("[data-input-tab]").forEach(button => {
+  button.addEventListener("click", () => setInputTab(button.dataset.inputTab));
 });
 
-closeSettingsBtn.addEventListener("click", () => {
-  settingsDialog.close();
-});
-
-messageCloseBtn.addEventListener("click", () => {
-  messageDialog.close();
-});
-
-settingsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const payload = {
-      apiKey: document.querySelector("#settingsApiKey").value,
-      defaultModel: document.querySelector("#settingsDefaultModel").value,
-    };
-    const data = await apiFetch("/api/settings", {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-    currentUser = data.user;
-    applyDefaultModel(currentUser.defaultModel);
-    settingsDialog.close();
-    renderAuthState();
-    showNotice("设置已保存", "新的 API Key 或默认模型将在下次评审时生效。");
-  } catch (err) {
-    showError(err.message);
-  }
-});
-
-modelPreset.addEventListener("change", () => {
-  customModelField.classList.toggle("hidden", modelPreset.value !== "custom");
+patchFile.addEventListener("change", async () => {
+  const file = patchFile.files[0];
+  if (!file) return;
+  diffInput.value = await file.text();
+  setInputTab("file");
+  showNotice("文件已读取", "diff 内容已载入，可以开始评审。");
 });
 
 sampleBtn.addEventListener("click", () => {
   diffInput.value = sampleDiff;
   prUrl.value = "";
+  setInputTab("diff");
 });
 
 reviewBtn.addEventListener("click", async () => {
-  startProgress("正在评审", "正在解析 PR 链接和代码变更...");
+  if (!modelConfigs.length) {
+    showError("当前账号还没有模型配置，请先进入模型设置中心添加。");
+    navigate("/settings/models");
+    return;
+  }
+  startProgress("正在评审", "正在解析输入和构建风险感知上下文...");
   reviewBtn.disabled = true;
   try {
-    updateProgress(35, "正在构建文件变更概览和重点上下文...");
-    const data = await apiFetch("/api/review", {
-      method: "POST",
-      body: JSON.stringify({
-        prUrl: prUrl.value.trim(),
-        diff: diffInput.value,
-        model: selectedModel(),
-      }),
-    });
-    updateProgress(90, "正在整理评审报告...");
+    const payload = await buildReviewPayload();
+    updateProgress(42, "正在执行规则检测和文件风险排序...");
+    const data = await apiFetch("/api/review", {method: "POST", body: JSON.stringify(payload)});
+    updateProgress(90, "正在整理评审报告和保存历史记录...");
     renderReport(data);
-    finishProgress("评审完成", "报告已生成，可以查看风险和复制 Review Comments。");
+    finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
   } catch (err) {
     stopProgress();
-    showError(err.message);
+    showError(`${err.message} 如模型调用失败，请切换模型配置或检查 API 额度。`);
   } finally {
     reviewBtn.disabled = false;
   }
 });
 
+modelProvider.addEventListener("change", () => {
+  if (!modelBaseUrl.value || Object.values(providerDefaults).includes(modelBaseUrl.value)) {
+    modelBaseUrl.value = providerDefaults[modelProvider.value] || "";
+  }
+});
+
+modelForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = readModelForm();
+  const id = editingConfigId.value;
+  try {
+    if (id) {
+      await apiFetch(`/api/model-configs/${id}`, {method: "PATCH", body: JSON.stringify(payload)});
+    } else {
+      await apiFetch("/api/model-configs", {method: "POST", body: JSON.stringify(payload)});
+    }
+    resetModelForm();
+    await loadModelConfigs();
+    showNotice("保存成功", "模型配置已更新。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+testModelBtn.addEventListener("click", async () => {
+  try {
+    const id = editingConfigId.value;
+    const payload = id && !modelApiKey.value.trim() ? {configId: id} : readModelForm();
+    const data = await apiFetch("/api/model-configs/test", {method: "POST", body: JSON.stringify(payload)});
+    showNotice("连接测试", data.message || "连接测试成功。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+resetModelFormBtn.addEventListener("click", resetModelForm);
+copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
+exportMarkdownBtn.addEventListener("click", async () => copyText(buildMarkdownReport(lastReport), "Markdown 报告已复制。"));
+
+window.addEventListener("popstate", () => route());
+
 async function authRequest(path, payload) {
   try {
-    const data = await rawFetch(path, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    const data = await rawFetch(path, {method: "POST", body: JSON.stringify(payload)});
     localStorage.setItem("reviewpilot_token", data.token);
     currentUser = data.user;
-    applyDefaultModel(currentUser.defaultModel);
     renderAuthState();
-    showNotice("登录成功", "已进入 ReviewPilot 工作台。");
+    await loadModelConfigs();
+    navigate(currentUser.hasModelConfigs ? "/review" : "/settings/models");
+    if (!currentUser.hasModelConfigs) {
+      showNotice("需要配置模型", "注册成功。请先在模型设置中心添加一个模型配置。");
+    }
   } catch (err) {
     showError(err.message);
   }
@@ -189,95 +254,219 @@ async function authRequest(path, payload) {
 async function loadSession() {
   const token = localStorage.getItem("reviewpilot_token");
   if (!token) {
+    currentUser = null;
     renderAuthState();
+    route();
     return;
   }
   try {
     currentUser = await apiFetch("/api/me");
-    applyDefaultModel(currentUser.defaultModel);
+    renderAuthState();
+    await loadProviders();
+    await loadModelConfigs();
   } catch {
     localStorage.removeItem("reviewpilot_token");
     currentUser = null;
+    renderAuthState();
   }
-  renderAuthState();
+  route();
+}
+
+async function loadProviders() {
+  const data = await rawFetch("/api/providers");
+  providers = data.providers || [];
+  modelProvider.innerHTML = providers.map(item => `<option value="${escapeHtmlAttr(item)}">${escapeHtml(item)}</option>`).join("");
+  modelProvider.value = "Qwen";
+  modelBaseUrl.value = providerDefaults.Qwen;
+}
+
+async function loadModelConfigs() {
+  if (!currentUser) return;
+  const data = await apiFetch("/api/model-configs");
+  modelConfigs = data.configs || [];
+  currentUser.hasModelConfigs = modelConfigs.length > 0;
+  renderModelSelect();
+  renderModelConfigList();
 }
 
 function renderAuthState() {
   const loggedIn = Boolean(currentUser);
-  authView.classList.toggle("hidden", loggedIn);
-  appView.classList.toggle("hidden", !loggedIn);
-  settingsBtn.classList.toggle("hidden", !loggedIn);
-  logoutBtn.classList.toggle("hidden", !loggedIn);
+  userMenu.classList.toggle("hidden", !loggedIn);
   userLabel.classList.toggle("hidden", !loggedIn);
   userLabel.textContent = loggedIn ? `当前账号：${currentUser.username}` : "";
 }
 
-function selectedModel() {
-  if (modelPreset.value === "custom") {
-    return customModel.value.trim();
-  }
-  return modelPreset.value;
+function navigate(path) {
+  if (location.pathname !== path) history.pushState({}, "", path);
+  route();
 }
 
-function applyDefaultModel(model) {
-  const options = Array.from(modelPreset.options).map(option => option.value);
-  if (options.includes(model)) {
-    modelPreset.value = model;
-    customModel.value = "";
-  } else {
-    modelPreset.value = "custom";
-    customModel.value = model;
+async function route() {
+  const path = views[location.pathname] ? location.pathname : (currentUser ? "/review" : "/login");
+  if (!currentUser && path !== "/login" && path !== "/register") {
+    showView("/login");
+    return;
   }
-  customModelField.classList.toggle("hidden", modelPreset.value !== "custom");
+  showView(path);
+  if (path === "/settings/models") {
+    await loadProviders();
+    await loadModelConfigs();
+  }
+  if (path === "/history") await loadHistory();
+  if (path === "/review") await loadModelConfigs();
 }
 
-async function apiFetch(path, options = {}) {
-  const token = localStorage.getItem("reviewpilot_token");
-  return rawFetch(path, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${token}`,
-    },
+function showView(path) {
+  Object.entries(views).forEach(([key, view]) => view.classList.toggle("hidden", key !== path));
+}
+
+function setInputTab(tab) {
+  activeInputTab = tab;
+  document.querySelectorAll("[data-input-tab]").forEach(button => {
+    button.classList.toggle("active", button.dataset.inputTab === tab);
   });
+  document.querySelector("#urlInputPane").classList.toggle("hidden", tab !== "url");
+  document.querySelector("#diffInputPane").classList.toggle("hidden", tab !== "diff");
+  document.querySelector("#fileInputPane").classList.toggle("hidden", tab !== "file");
 }
 
-async function rawFetch(path, options = {}) {
-  let res;
+async function buildReviewPayload() {
+  let diff = diffInput.value;
+  if (activeInputTab === "file" && patchFile.files[0]) diff = await patchFile.files[0].text();
+  return {
+    prUrl: activeInputTab === "url" ? prUrl.value.trim() : "",
+    diff: activeInputTab === "url" ? "" : diff,
+    modelConfigId: modelConfigSelect.value,
+    analysisMode: analysisMode.value,
+  };
+}
+
+function renderModelSelect() {
+  modelMissingHint.classList.toggle("hidden", modelConfigs.length > 0);
+  reviewBtn.disabled = modelConfigs.length === 0;
+  modelConfigSelect.innerHTML = modelConfigs.length
+    ? modelConfigs.map(item => `<option value="${item.id}">${escapeHtml(item.display_name)}${item.is_default ? "（默认）" : ""}</option>`).join("")
+    : `<option value="">请先添加模型配置</option>`;
+  const defaultConfig = modelConfigs.find(item => item.is_default);
+  if (defaultConfig) modelConfigSelect.value = defaultConfig.id;
+}
+
+function renderModelConfigList() {
+  if (!modelConfigList) return;
+  if (!modelConfigs.length) {
+    modelConfigList.innerHTML = empty("暂无模型配置。添加后才能开始 Review。");
+    return;
+  }
+  modelConfigList.innerHTML = modelConfigs.map(item => `<article class="card">
+    <div class="card-title">
+      <span>${escapeHtml(item.display_name)}</span>
+      <span class="badge ${item.is_default ? "low" : "medium"}">${item.is_default ? "默认" : "可用"}</span>
+    </div>
+    <p><strong>Provider：</strong>${escapeHtml(item.provider)}</p>
+    <p><strong>Base URL：</strong>${escapeHtml(item.base_url)}</p>
+    <p><strong>API Key：</strong>${escapeHtml(item.api_key_mask)}</p>
+    <div class="inline-actions">
+      <button type="button" data-edit-model="${item.id}">编辑</button>
+      <button type="button" data-default-model="${item.id}">设为默认</button>
+      <button type="button" data-delete-model="${item.id}">删除</button>
+    </div>
+  </article>`).join("");
+}
+
+modelConfigList.addEventListener("click", async (event) => {
+  const editId = event.target.closest("[data-edit-model]")?.dataset.editModel;
+  const defaultId = event.target.closest("[data-default-model]")?.dataset.defaultModel;
+  const deleteId = event.target.closest("[data-delete-model]")?.dataset.deleteModel;
   try {
-    res = await fetch(path, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
-    });
-  } catch {
-    throw new Error("无法连接本地服务，请确认已经运行 python server.py。");
-  }
-
-  const contentType = res.headers.get("Content-Type") || "";
-  const text = await res.text();
-  let data = {};
-  if (text && contentType.includes("application/json")) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error("服务返回的 JSON 格式不正确，请重启服务后重试。");
+    if (editId) editModelConfig(editId);
+    if (defaultId) {
+      await apiFetch(`/api/model-configs/${defaultId}/default`, {method: "POST"});
+      await loadModelConfigs();
     }
-  } else if (text && text.trim().startsWith("<!")) {
-    throw new Error("服务返回了网页而不是接口数据。通常是后端服务没有重启，或当前页面仍连接到旧版本服务。请关闭旧服务后重新运行 python server.py。");
-  } else if (text) {
-    throw new Error(text.slice(0, 160));
+    if (deleteId && confirm("确定删除这个模型配置吗？")) {
+      await apiFetch(`/api/model-configs/${deleteId}`, {method: "DELETE"});
+      await loadModelConfigs();
+    }
+  } catch (err) {
+    showError(err.message);
   }
+});
 
-  if (!res.ok || data.error) {
-    throw new Error(data.error || `请求失败，状态码 ${res.status}`);
-  }
-  return data;
+function editModelConfig(id) {
+  const item = modelConfigs.find(config => config.id === id);
+  if (!item) return;
+  editingConfigId.value = item.id;
+  modelFormTitle.textContent = "编辑模型配置";
+  modelProvider.value = item.provider;
+  modelBaseUrl.value = item.base_url;
+  modelApiKey.value = "";
+  modelName.value = item.model_name;
+  modelDefault.checked = item.is_default;
 }
+
+function resetModelForm() {
+  editingConfigId.value = "";
+  modelFormTitle.textContent = "添加模型配置";
+  modelProvider.value = "Qwen";
+  modelBaseUrl.value = providerDefaults.Qwen;
+  modelApiKey.value = "";
+  modelName.value = "qwen-plus";
+  modelDefault.checked = modelConfigs.length === 0;
+}
+
+function readModelForm() {
+  return {
+    provider: modelProvider.value,
+    base_url: modelBaseUrl.value,
+    api_key: modelApiKey.value,
+    model_name: modelName.value,
+    is_default: modelDefault.checked,
+  };
+}
+
+async function loadHistory() {
+  const data = await apiFetch("/api/history");
+  const items = data.items || [];
+  historyList.innerHTML = items.length ? items.map(renderHistoryItem).join("") : empty("暂无历史记录。完成一次 Review 后会自动保存。");
+}
+
+function renderHistoryItem(item) {
+  return `<article class="card">
+    <div class="card-title">
+      <span>${escapeHtml(item.prTitle || "粘贴 diff 分析")}</span>
+      <span class="badge ${item.overallRisk}">${item.overallRisk}</span>
+    </div>
+    <p><strong>PR：</strong>${escapeHtml(item.prUrl || "粘贴 diff")}</p>
+    <p><strong>模型：</strong>${escapeHtml(item.model)}；风险数：${item.riskCount}；时间：${formatTime(item.analyzedAt)}</p>
+    <div class="inline-actions">
+      <button type="button" data-open-history="${item.id}">查看报告</button>
+      <button type="button" data-delete-history="${item.id}">删除</button>
+    </div>
+  </article>`;
+}
+
+historyList.addEventListener("click", async (event) => {
+  const openId = event.target.closest("[data-open-history]")?.dataset.openHistory;
+  const deleteId = event.target.closest("[data-delete-history]")?.dataset.deleteHistory;
+  try {
+    if (openId) {
+      const item = await apiFetch(`/api/history/${openId}`);
+      navigate("/review");
+      renderReport(item.report);
+    }
+    if (deleteId && confirm("确定删除这条历史记录吗？")) {
+      await apiFetch(`/api/history/${deleteId}`, {method: "DELETE"});
+      await loadHistory();
+    }
+  } catch (err) {
+    showError(err.message);
+  }
+});
 
 function renderReport(data) {
+  lastReport = data;
+  emptyReport.classList.add("hidden");
+  reportContent.classList.remove("hidden");
   const fileChanges = data.file_changes || data.files || [];
   const risks = data.risks || data.findings || [];
   const modules = data.changed_modules || [];
@@ -289,7 +478,7 @@ function renderReport(data) {
   const additions = fileChanges.reduce((sum, file) => sum + Number(file.additions || 0), 0);
   const deletions = fileChanges.reduce((sum, file) => sum + Number(file.deletions || 0), 0);
 
-  reportTitle.textContent = overview.title || data.pr.title || "评审报告";
+  reportTitle.textContent = overview.title || data.pr?.title || "评审报告";
   summaryText.textContent = data.summary || "模型没有返回摘要。";
   lastSummary = summaryText.textContent;
   riskBadge.textContent = data.riskLevel || "low";
@@ -328,8 +517,8 @@ function renderCoverage(coverage) {
   const suffix = skipped.length > 6 ? ` 等 ${skipped.length} 个文件` : "";
   return `<article class="card">
     <div class="coverage-bar"><span style="width:${percent}%"></span></div>
-    <p><strong>覆盖率：</strong>${analyzed}/${total} 个文件进入重点上下文，${percent}%</p>
-    <p><strong>策略：</strong>${escapeHtml(coverage.strategy || "按文件优先级选择重点上下文。")}</p>
+    <p><strong>覆盖率：</strong>${analyzed}/${total} 个文件进入深度上下文，${percent}%</p>
+    <p><strong>策略：</strong>${escapeHtml(coverage.strategy || "按文件风险分选择重点上下文。")}</p>
     <p><strong>跳过文件：</strong>${escapeHtml(skippedText + suffix)}</p>
     <p><strong>是否筛选上下文：</strong>${coverage.context_truncated ? "是" : "否"}</p>
   </article>`;
@@ -337,14 +526,15 @@ function renderCoverage(coverage) {
 
 function renderFile(file) {
   const status = statusText(file.status);
+  const score = Number(file.risk_score || file.priority || 0);
   const path = file.filename || file.path;
   return `<article class="card">
     <div class="card-title">
       <span>${escapeHtml(path)}</span>
       <span class="badge ${status.className}">${status.label}</span>
     </div>
-    <div class="risk-meter"><span style="width:${Number(file.risk_score || file.priority || 0)}%"></span></div>
-    <p>类型：${escapeHtml(file.category || "general")}；风险分 ${file.risk_score ?? file.priority ?? 0}；+${file.additions} / -${file.deletions}，${file.hunks || 0} 个 hunk</p>
+    <div class="risk-meter"><span style="width:${score}%"></span></div>
+    <p>类型：${escapeHtml(file.category || "general")}；风险分 ${score}；+${file.additions} / -${file.deletions}，${file.hunks || 0} 个 hunk</p>
     <p>${escapeHtml((file.risk_reasons || []).join("；") || "普通变更文件")}</p>
   </article>`;
 }
@@ -378,9 +568,7 @@ function renderRuleFinding(item) {
 
 function renderModule(item) {
   return `<article class="card">
-    <div class="card-title">
-      <span>${escapeHtml(item.name)}</span>
-    </div>
+    <div class="card-title"><span>${escapeHtml(item.name)}</span></div>
     <p>${escapeHtml(item.summary || "无总结")}</p>
     <p><strong>文件：</strong>${escapeHtml((item.files || []).join(", "))}</p>
   </article>`;
@@ -392,6 +580,7 @@ function renderRisk(item) {
       <span>${escapeHtml(item.file)}</span>
       <span class="badge ${item.risk_level}">${item.risk_level}</span>
     </div>
+    <p><strong>类型：</strong>${escapeHtml(typeText(item.type))}</p>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
     <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
     <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
@@ -414,6 +603,119 @@ function renderComment(item) {
 
 function renderLimitation(item) {
   return `<article class="card compact-card"><p>${escapeHtml(item)}</p></article>`;
+}
+
+function buildMarkdownReport(data) {
+  if (!data) return "暂无报告";
+  const risks = data.risks || [];
+  const comments = data.review_comments || [];
+  return [
+    `# ${data.pr_overview?.title || "ReviewPilot 报告"}`,
+    "",
+    `## Summary`,
+    data.summary || "",
+    "",
+    `## Risks`,
+    risks.length ? risks.map(item => `- [${item.risk_level}] ${item.file}: ${item.issue}`).join("\n") : "- 未发现明确风险",
+    "",
+    `## Review Comments`,
+    comments.length ? comments.map(item => `- ${item.file ? item.file + ": " : ""}${item.comment}`).join("\n") : "- 暂无建议",
+  ].join("\n");
+}
+
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem("reviewpilot_token");
+  return rawFetch(path, {
+    ...options,
+    headers: {...(options.headers || {}), Authorization: `Bearer ${token}`},
+  });
+}
+
+async function rawFetch(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {"Content-Type": "application/json", ...(options.headers || {})},
+    });
+  } catch {
+    throw new Error("无法连接本地服务，请确认已经运行 python server.py。");
+  }
+  const contentType = res.headers.get("Content-Type") || "";
+  const text = await res.text();
+  let data = {};
+  if (text && contentType.includes("application/json")) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("服务返回的 JSON 格式不正确，请重启服务后重试。");
+    }
+  } else if (text && text.trim().startsWith("<!")) {
+    throw new Error("服务返回了网页而不是接口数据。通常是后端服务没有重启，或当前页面仍连接到旧版本服务。");
+  } else if (text) {
+    throw new Error(text.slice(0, 160));
+  }
+  if (!res.ok || data.error) throw new Error(data.error || `请求失败，状态码 ${res.status}`);
+  return data;
+}
+
+function startProgress(title, text) {
+  reportContent.classList.remove("hidden");
+  emptyReport.classList.add("hidden");
+  operationStatus.classList.remove("hidden");
+  operationTitle.textContent = title;
+  operationText.textContent = text;
+  progressBar.style.width = "12%";
+  clearInterval(progressTimer);
+  let value = 12;
+  progressTimer = setInterval(() => {
+    value = Math.min(82, value + 6);
+    progressBar.style.width = `${value}%`;
+  }, 500);
+}
+
+function updateProgress(value, text) {
+  operationText.textContent = text;
+  progressBar.style.width = `${value}%`;
+}
+
+function finishProgress(title, text) {
+  clearInterval(progressTimer);
+  operationTitle.textContent = title;
+  operationText.textContent = text;
+  progressBar.style.width = "100%";
+  setTimeout(() => operationStatus.classList.add("hidden"), 1800);
+}
+
+function stopProgress() {
+  clearInterval(progressTimer);
+  operationStatus.classList.add("hidden");
+  progressBar.style.width = "0";
+}
+
+async function copyText(text, successText) {
+  if (!text) {
+    showError("当前没有可复制的内容。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice("复制成功", successText);
+  } catch {
+    showError("复制失败，请手动选择文本复制。");
+  }
+}
+
+function showError(text) {
+  messageTitle.textContent = "操作失败";
+  messageText.textContent = text;
+  messageDialog.showModal();
+}
+
+function showNotice(title, text) {
+  messageTitle.textContent = title;
+  messageText.textContent = text;
+  messageDialog.showModal();
 }
 
 function statusText(status) {
@@ -440,24 +742,16 @@ function typeText(type) {
   return map[type] || "Review 建议";
 }
 
+function formatTime(value) {
+  return value ? new Date(value * 1000).toLocaleString("zh-CN") : "未知";
+}
+
 function empty(text) {
   return `<div class="empty">${text}</div>`;
 }
 
-function showError(text) {
-  messageTitle.textContent = "操作失败";
-  messageText.textContent = text;
-  messageDialog.showModal();
-}
-
-function showNotice(title, text) {
-  messageTitle.textContent = title;
-  messageText.textContent = text;
-  messageDialog.showModal();
-}
-
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -468,66 +762,4 @@ function escapeHtmlAttr(value) {
   return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
-document.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-copy]");
-  if (!button) return;
-  try {
-    await copyText(button.dataset.copy, "Review Comment 已复制。");
-  } catch {
-    showError("复制失败，请手动选择文本复制。");
-  }
-});
-
-copySummaryBtn.addEventListener("click", async () => {
-  if (!lastSummary) {
-    showError("当前还没有可复制的摘要。");
-    return;
-  }
-  await copyText(lastSummary, "摘要已复制");
-});
-
-async function copyText(text, successText) {
-  try {
-    await navigator.clipboard.writeText(text);
-    showNotice("复制成功", successText);
-  } catch {
-    showError("复制失败，请手动选择文本复制。");
-  }
-}
-
-function startProgress(title, text) {
-  operationStatus.classList.remove("hidden");
-  operationTitle.textContent = title;
-  operationText.textContent = text;
-  progressBar.style.width = "12%";
-  clearInterval(progressTimer);
-  let value = 12;
-  progressTimer = setInterval(() => {
-    value = Math.min(82, value + 6);
-    progressBar.style.width = `${value}%`;
-  }, 500);
-}
-
-function updateProgress(value, text) {
-  operationText.textContent = text;
-  progressBar.style.width = `${value}%`;
-}
-
-function finishProgress(title, text) {
-  clearInterval(progressTimer);
-  operationTitle.textContent = title;
-  operationText.textContent = text;
-  progressBar.style.width = "100%";
-  setTimeout(() => {
-    operationStatus.classList.add("hidden");
-    progressBar.style.width = "0";
-  }, 1800);
-}
-
-function stopProgress() {
-  clearInterval(progressTimer);
-  operationStatus.classList.add("hidden");
-  progressBar.style.width = "0";
-}
-
-loadSession();
+loadProviders().then(loadSession);

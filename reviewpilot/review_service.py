@@ -1,6 +1,6 @@
 from .diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
 from .github_client import GitHubError, fetch_public_pr
-from .qwen_client import QwenError, call_qwen
+from .qwen_client import QwenError, call_chat_model
 from .rule_checker import run_rule_checks
 from .user_store import normalize_model
 import json
@@ -13,7 +13,17 @@ class ReviewError(Exception):
 MAX_EVIDENCE_LINES = 100
 
 
-def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict:
+def review_change(pr_url: str, diff_text: str, api_key: str = "", model: str = "", model_config: dict | None = None) -> dict:
+    if model_config:
+        api_key = model_config.get("apiKey", "")
+        model = model_config.get("modelName", "")
+        base_url = model_config.get("baseUrl", "")
+        provider = model_config.get("provider", "")
+        model_display = model_config.get("displayName") or f"{provider} / {model}"
+    else:
+        base_url = ""
+        provider = "Qwen"
+        model_display = model
     model = normalize_model(model)
     pr = {}
     if pr_url.strip():
@@ -48,11 +58,11 @@ def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict
     )
 
     try:
-        report = call_qwen(messages, api_key, model)
+        report = call_chat_model(messages, api_key, model, base_url, provider)
     except QwenError as exc:
         raise ReviewError(str(exc)) from exc
 
-    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, rule_findings, model)
+    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, rule_findings, model_display, provider)
 
 
 def build_messages(
@@ -161,6 +171,7 @@ def normalize_report(
     context_coverage: dict,
     rule_findings: list[dict],
     model: str,
+    provider: str = "",
 ) -> dict:
     file_paths = {file["filename"] for file in file_changes}
     risks = normalize_risks(report.get("risks", []), file_paths)
@@ -177,6 +188,7 @@ def normalize_report(
         "summary": report.get("summary", ""),
         "riskLevel": max_risk_level(risks),
         "model": model,
+        "provider": provider,
         "file_changes": file_changes,
         "files": file_changes,
         "priority_files": priority_files,

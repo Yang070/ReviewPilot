@@ -1,10 +1,12 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 import json
 import mimetypes
 import os
 import sys
 
+from reviewpilot.qwen_client import QwenError, test_chat_connection
 from reviewpilot.review_service import ReviewError, review_change
 from reviewpilot.user_store import SessionStore, UserError, UserStore
 
@@ -13,50 +15,90 @@ WEB_DIR = ROOT / "web"
 PORT = int(os.getenv("REVIEWPILOT_PORT", "8770"))
 USER_STORE = UserStore(ROOT / "data" / "users.json", ROOT / "data" / "app_secret.key")
 SESSIONS = SessionStore()
-MODELS = ["qwen-plus", "qwen-plus-2025-07-28", "qwen-long", "qwen-max"]
+PROVIDERS = ["OpenAI", "Qwen", "DeepSeek", "Claude", "Custom OpenAI-Compatible"]
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/api/health":
+        path = self.route_path()
+        if path == "/api/health":
             self.send_json({"ok": True})
             return
-        if self.path == "/api/me":
+        if path == "/api/me":
             session = self.require_session()
             if session:
-                self.send_json(public_session(session))
+                self.send_json(USER_STORE.get_user(session["username"]))
             return
-        if self.path == "/api/models":
-            self.send_json({"models": MODELS})
+        if path == "/api/providers":
+            self.send_json({"providers": PROVIDERS})
             return
-        if self.path.startswith("/api/"):
+        if path == "/api/model-configs":
+            session = self.require_session()
+            if session:
+                self.send_json({"configs": USER_STORE.list_model_configs(session["username"])})
+            return
+        if path == "/api/history":
+            session = self.require_session()
+            if session:
+                self.send_json({"items": USER_STORE.list_history(session["username"])})
+            return
+        if path.startswith("/api/history/"):
+            session = self.require_session()
+            if session:
+                self.handle_history_detail(path.rsplit("/", 1)[-1])
+            return
+        if path.startswith("/api/"):
             self.send_json({"error": "接口不存在，请检查当前服务版本是否已更新。"}, status=404)
             return
         self.serve_static()
 
     def do_POST(self):
-        if self.path == "/api/register":
+        path = self.route_path()
+        if path == "/api/register":
             self.handle_register()
             return
-        if self.path == "/api/login":
+        if path == "/api/login":
             self.handle_login()
             return
-        if self.path == "/api/logout":
+        if path == "/api/logout":
             self.handle_logout()
             return
-        if self.path == "/api/review":
+        if path == "/api/review":
             self.handle_review()
             return
-        if self.path.startswith("/api/"):
+        if path == "/api/model-configs":
+            self.handle_add_model_config()
+            return
+        if path == "/api/model-configs/test":
+            self.handle_test_model_config()
+            return
+        if path.startswith("/api/model-configs/") and path.endswith("/default"):
+            self.handle_set_default_model_config(path.split("/")[-2])
+            return
+        if path.startswith("/api/"):
             self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
             return
         self.send_error(404)
 
     def do_PATCH(self):
-        if self.path == "/api/settings":
-            self.handle_settings()
+        path = self.route_path()
+        if path.startswith("/api/model-configs/"):
+            self.handle_update_model_config(path.rsplit("/", 1)[-1])
             return
-        if self.path.startswith("/api/"):
+        if path.startswith("/api/"):
+            self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
+            return
+        self.send_error(404)
+
+    def do_DELETE(self):
+        path = self.route_path()
+        if path.startswith("/api/model-configs/"):
+            self.handle_delete_model_config(path.rsplit("/", 1)[-1])
+            return
+        if path.startswith("/api/history/"):
+            self.handle_delete_history(path.rsplit("/", 1)[-1])
+            return
+        if path.startswith("/api/"):
             self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
             return
         self.send_error(404)
@@ -66,12 +108,12 @@ class Handler(BaseHTTPRequestHandler):
             payload = self.read_json()
             user = USER_STORE.register(
                 payload.get("username", ""),
+                payload.get("email", ""),
                 payload.get("password", ""),
-                payload.get("apiKey", ""),
-                payload.get("defaultModel", "qwen-plus"),
+                payload.get("confirmPassword", ""),
             )
             token = SESSIONS.create(user)
-            self.send_json({"token": token, "user": public_session(SESSIONS.get(token))})
+            self.send_json({"token": token, "user": USER_STORE.get_user(user["username"])})
         except UserError as exc:
             self.send_json({"error": str(exc)}, status=400)
 
@@ -80,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = self.read_json()
             user = USER_STORE.authenticate(payload.get("username", ""), payload.get("password", ""))
             token = SESSIONS.create(user)
-            self.send_json({"token": token, "user": public_session(SESSIONS.get(token))})
+            self.send_json({"token": token, "user": USER_STORE.get_user(user["username"])})
         except UserError as exc:
             self.send_json({"error": str(exc)}, status=400)
 
@@ -90,24 +132,66 @@ class Handler(BaseHTTPRequestHandler):
             SESSIONS.delete(token)
         self.send_json({"ok": True})
 
-    def handle_settings(self):
+    def handle_add_model_config(self):
         session = self.require_session()
         if not session:
             return
         try:
             payload = self.read_json()
-            settings = USER_STORE.update_settings(
-                session["username"],
-                payload.get("apiKey"),
-                payload.get("defaultModel"),
-            )
-            token = self.auth_token()
-            SESSIONS.update(token, {
-                "apiKey": settings["apiKey"],
-                "defaultModel": settings["defaultModel"],
-            })
-            self.send_json({"user": public_session(SESSIONS.get(token))})
+            config = USER_STORE.add_model_config(session["username"], payload)
+            self.send_json({"config": config})
         except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_update_model_config(self, config_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            config = USER_STORE.update_model_config(session["username"], config_id, self.read_json())
+            self.send_json({"config": config})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_delete_model_config(self, config_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            USER_STORE.delete_model_config(session["username"], config_id)
+            self.send_json({"ok": True})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_set_default_model_config(self, config_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            config = USER_STORE.set_default_model_config(session["username"], config_id)
+            self.send_json({"config": config})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_test_model_config(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            payload = self.read_json()
+            if payload.get("configId"):
+                config = USER_STORE.get_model_config_secret(session["username"], payload.get("configId"))
+            else:
+                config = USER_STORE.build_model_config(payload)
+                config = {
+                    "apiKey": payload.get("api_key", ""),
+                    "modelName": config["modelName"],
+                    "baseUrl": config["baseUrl"],
+                    "provider": config["provider"],
+                }
+            test_chat_connection(config["apiKey"], config["modelName"], config["baseUrl"], config.get("provider", ""))
+            self.send_json({"ok": True, "message": "连接测试成功。"})
+        except (UserError, QwenError) as exc:
             self.send_json({"error": str(exc)}, status=400)
 
     def handle_review(self):
@@ -118,17 +202,39 @@ class Handler(BaseHTTPRequestHandler):
             payload = self.read_json()
             pr_url = payload.get("prUrl", "")
             diff = payload.get("diff", "")
-            model = payload.get("model") or session.get("defaultModel") or "qwen-plus"
+            model_config_id = payload.get("modelConfigId", "")
             if not isinstance(pr_url, str) or not isinstance(diff, str):
                 raise ReviewError("请求字段 prUrl 和 diff 必须是字符串。")
-            if not isinstance(model, str):
-                raise ReviewError("模型名称必须是字符串。")
-            result = review_change(pr_url, diff, session["apiKey"], model)
+            if not isinstance(model_config_id, str):
+                raise ReviewError("模型配置 ID 必须是字符串。")
+            model_config = USER_STORE.get_model_config_secret(session["username"], model_config_id or None)
+            result = review_change(pr_url, diff, model_config=model_config)
+            history = USER_STORE.add_history(session["username"], result, pr_url, model_config)
+            result["history_id"] = history["id"]
             self.send_json(result)
         except (ReviewError, UserError) as exc:
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             self.send_json({"error": f"服务端发生未预期错误：{exc}"}, status=500)
+
+    def handle_history_detail(self, history_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            self.send_json(USER_STORE.get_history(session["username"], history_id))
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=404)
+
+    def handle_delete_history(self, history_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            USER_STORE.delete_history(session["username"], history_id)
+            self.send_json({"ok": True})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=404)
 
     def require_session(self):
         token = self.auth_token()
@@ -148,8 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         rel_path = self.path.split("?", 1)[0].lstrip("/") or "index.html"
         file_path = (WEB_DIR / rel_path).resolve()
         if not str(file_path).startswith(str(WEB_DIR.resolve())) or not file_path.is_file():
-            self.send_error(404)
-            return
+            file_path = WEB_DIR / "index.html"
         content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         data = file_path.read_bytes()
         self.send_response(200)
@@ -175,13 +280,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stdout.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-
-def public_session(session: dict) -> dict:
-    return {
-        "username": session["username"],
-        "defaultModel": session.get("defaultModel", "qwen-plus"),
-        "hasApiKey": bool(session.get("apiKey")),
-    }
+    def route_path(self):
+        return urlparse(self.path).path
 
 
 def main():
