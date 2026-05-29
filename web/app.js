@@ -9,6 +9,10 @@ const closeSettingsBtn = document.querySelector("#closeSettingsBtn");
 const logoutBtn = document.querySelector("#logoutBtn");
 const userLabel = document.querySelector("#userLabel");
 const statusBox = document.querySelector("#status");
+const messageDialog = document.querySelector("#messageDialog");
+const messageTitle = document.querySelector("#messageTitle");
+const messageText = document.querySelector("#messageText");
+const messageCloseBtn = document.querySelector("#messageCloseBtn");
 
 const prUrl = document.querySelector("#prUrl");
 const diffInput = document.querySelector("#diffInput");
@@ -73,10 +77,14 @@ registerForm.addEventListener("submit", async (event) => {
 });
 
 logoutBtn.addEventListener("click", async () => {
-  await apiFetch("/api/logout", {method: "POST"});
-  localStorage.removeItem("reviewpilot_token");
-  currentUser = null;
-  renderAuthState();
+  try {
+    await apiFetch("/api/logout", {method: "POST"});
+    localStorage.removeItem("reviewpilot_token");
+    currentUser = null;
+    renderAuthState();
+  } catch (err) {
+    showError(err.message);
+  }
 });
 
 settingsBtn.addEventListener("click", () => {
@@ -89,21 +97,29 @@ closeSettingsBtn.addEventListener("click", () => {
   settingsDialog.close();
 });
 
+messageCloseBtn.addEventListener("click", () => {
+  messageDialog.close();
+});
+
 settingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const payload = {
-    apiKey: document.querySelector("#settingsApiKey").value,
-    defaultModel: document.querySelector("#settingsDefaultModel").value,
-  };
-  const data = await apiFetch("/api/settings", {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-  currentUser = data.user;
-  applyDefaultModel(currentUser.defaultModel);
-  settingsDialog.close();
-  renderAuthState();
-  setStatus("设置已保存");
+  try {
+    const payload = {
+      apiKey: document.querySelector("#settingsApiKey").value,
+      defaultModel: document.querySelector("#settingsDefaultModel").value,
+    };
+    const data = await apiFetch("/api/settings", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    currentUser = data.user;
+    applyDefaultModel(currentUser.defaultModel);
+    settingsDialog.close();
+    renderAuthState();
+    setStatus("设置已保存");
+  } catch (err) {
+    showError(err.message);
+  }
 });
 
 modelPreset.addEventListener("change", () => {
@@ -130,7 +146,7 @@ reviewBtn.addEventListener("click", async () => {
     renderReport(data);
     setStatus("完成");
   } catch (err) {
-    setStatus(err.message);
+    showError(err.message);
   } finally {
     reviewBtn.disabled = false;
   }
@@ -148,7 +164,7 @@ async function authRequest(path, payload) {
     renderAuthState();
     setStatus("已登录");
   } catch (err) {
-    setStatus(err.message);
+    showError(err.message);
   }
 }
 
@@ -209,16 +225,36 @@ async function apiFetch(path, options = {}) {
 }
 
 async function rawFetch(path, options = {}) {
-  const res = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-  const data = await res.json();
+  let res;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error("无法连接本地服务，请确认已经运行 python server.py。");
+  }
+
+  const contentType = res.headers.get("Content-Type") || "";
+  const text = await res.text();
+  let data = {};
+  if (text && contentType.includes("application/json")) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("服务返回的 JSON 格式不正确，请重启服务后重试。");
+    }
+  } else if (text && text.trim().startsWith("<!")) {
+    throw new Error("服务返回了网页而不是接口数据。通常是后端服务没有重启，或当前页面仍连接到旧版本服务。请关闭旧服务后重新运行 python server.py。");
+  } else if (text) {
+    throw new Error(text.slice(0, 160));
+  }
+
   if (!res.ok || data.error) {
-    throw new Error(data.error || "请求失败");
+    throw new Error(data.error || `请求失败，状态码 ${res.status}`);
   }
   return data;
 }
@@ -266,6 +302,13 @@ function empty(text) {
 
 function setStatus(text) {
   statusBox.textContent = text;
+}
+
+function showError(text) {
+  setStatus("出现错误");
+  messageTitle.textContent = "操作失败";
+  messageText.textContent = text;
+  messageDialog.showModal();
 }
 
 function escapeHtml(value) {

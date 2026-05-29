@@ -29,6 +29,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/models":
             self.send_json({"models": MODELS})
             return
+        if self.path.startswith("/api/"):
+            self.send_json({"error": "接口不存在，请检查当前服务版本是否已更新。"}, status=404)
+            return
         self.serve_static()
 
     def do_POST(self):
@@ -44,11 +47,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/review":
             self.handle_review()
             return
+        if self.path.startswith("/api/"):
+            self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
+            return
         self.send_error(404)
 
     def do_PATCH(self):
         if self.path == "/api/settings":
             self.handle_settings()
+            return
+        if self.path.startswith("/api/"):
+            self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
             return
         self.send_error(404)
 
