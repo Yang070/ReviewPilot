@@ -283,6 +283,10 @@ button:hover {
   margin-bottom: 18px;
 }
 
+.section-grid.single {
+  grid-template-columns: 1fr;
+}
+
 .result-section {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -382,10 +386,19 @@ button:hover {
   margin-bottom: 10px;
 }
 
-.coverage-bar span {
+.coverage-bar span,
+.risk-meter span {
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+.risk-meter {
+  height: 6px;
+  border-radius: 999px;
+  background: #e4e7ec;
+  overflow: hidden;
+  margin: 8px 0;
 }
 
 .copy-btn {

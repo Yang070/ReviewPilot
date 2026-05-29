@@ -1,7 +1,8 @@
 import unittest
 
-from reviewpilot.diff_parser import build_evidence, parse_diff, summarize_priority_files
+from reviewpilot.diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
 from reviewpilot.review_service import build_context_coverage, build_messages, build_pr_overview
+from reviewpilot.rule_checker import run_rule_checks
 
 
 class DiffParserTest(unittest.TestCase):
@@ -69,7 +70,57 @@ new file mode 100644
 """
         priority = summarize_priority_files(parse_diff(diff))
         self.assertEqual(priority[0]["filename"], "src/api/auth.ts")
-        self.assertGreater(priority[0]["priority"], 0)
+        self.assertGreater(priority[0]["risk_score"], 0)
+        self.assertIn("risk_reasons", priority[0])
+
+    def test_risk_score_deprioritizes_test_file(self):
+        diff = """diff --git a/src/service/payment.ts b/src/service/payment.ts
+--- a/src/service/payment.ts
++++ b/src/service/payment.ts
+@@ -1,1 +1,2 @@
++await charge(order)
+diff --git a/src/service/payment.test.ts b/src/service/payment.test.ts
+--- a/src/service/payment.test.ts
++++ b/src/service/payment.test.ts
+@@ -1,1 +1,2 @@
++expect(total).toBe(1)
+"""
+        files = summarize_files(parse_diff(diff))
+        scores = {file["filename"]: file["risk_score"] for file in files}
+        self.assertGreater(scores["src/service/payment.ts"], scores["src/service/payment.test.ts"])
+
+    def test_selected_context_uses_deep_mode_for_risky_source(self):
+        diff = """diff --git a/src/api/auth.ts b/src/api/auth.ts
+--- a/src/api/auth.ts
++++ b/src/api/auth.ts
+@@ -1,1 +1,3 @@
++export async function login() {
++  await request("/login")
++}
+diff --git a/package-lock.json b/package-lock.json
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,1 +1,2 @@
++{"version":"1.0.1"}
+"""
+        context, truncated = build_selected_context(parse_diff(diff))
+        auth_context = next(item for item in context if item["file"] == "src/api/auth.ts")
+        lock_context = next(item for item in context if item["file"] == "package-lock.json")
+        self.assertEqual(auth_context["mode"], "deep")
+        self.assertIn("patch", auth_context)
+        self.assertEqual(lock_context["mode"], "summary")
+        self.assertFalse(truncated)
+
+    def test_rule_checker_detects_async_without_error_handling(self):
+        diff = """diff --git a/src/api/auth.ts b/src/api/auth.ts
+--- a/src/api/auth.ts
++++ b/src/api/auth.ts
+@@ -1,1 +1,2 @@
++await login()
+"""
+        findings = run_rule_checks(parse_diff(diff))
+        self.assertEqual(findings[0]["type"], "potential_risk")
+        self.assertIn("异步", findings[0]["issue"])
 
     def test_context_coverage_reports_skipped_files(self):
         files = [

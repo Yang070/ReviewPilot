@@ -13,7 +13,7 @@
           <span class="logo">RP</span>
           <div>
             <h1>ReviewPilot</h1>
-            <p>基于证据链的 AI 代码评审助手</p>
+            <p>风险感知型 AI PR Review 助手</p>
           </div>
         </div>
         <div class="userbar">
@@ -121,7 +121,7 @@
             <div><span>新增行数</span><strong id="additionCount">0</strong></div>
             <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
             <div><span>风险数</span><strong id="findingCount">0</strong></div>
-            <div><span>证据数</span><strong id="evidenceCount">0</strong></div>
+            <div><span>深度文件</span><strong id="evidenceCount">0</strong></div>
             <div><span>综合评分</span><strong id="overallScore">0</strong></div>
             </div>
           </section>
@@ -143,27 +143,34 @@
               <div id="files" class="stack"></div>
             </section>
             <section class="result-section">
-              <h3>重点分析文件</h3>
+              <h3>Risk-Aware File Ranking</h3>
               <div id="priorityFiles" class="stack"></div>
             </section>
           </div>
 
           <div class="section-grid">
             <section class="result-section">
-              <h3>主要变更模块</h3>
-              <div id="modules" class="stack"></div>
+              <h3>Rule Findings</h3>
+              <div id="ruleFindings" class="stack"></div>
             </section>
             <section class="result-section">
-              <h3>明确风险</h3>
-              <div id="risks" class="stack"></div>
+              <h3>主要变更模块</h3>
+              <div id="modules" class="stack"></div>
             </section>
           </div>
 
           <div class="section-grid">
             <section class="result-section">
+              <h3>AI Review Risks</h3>
+              <div id="risks" class="stack"></div>
+            </section>
+            <section class="result-section">
               <h3>可复制 Review Comments</h3>
               <div id="comments" class="stack"></div>
             </section>
+          </div>
+
+          <div class="section-grid single">
             <section class="result-section">
               <h3>AI 分析限制</h3>
               <div id="limitations" class="stack"></div>

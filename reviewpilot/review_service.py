@@ -1,6 +1,7 @@
-from .diff_parser import build_evidence, parse_diff, summarize_files, summarize_priority_files
+from .diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
 from .github_client import GitHubError, fetch_public_pr
 from .qwen_client import QwenError, call_qwen
+from .rule_checker import run_rule_checks
 from .user_store import normalize_model
 import json
 
@@ -32,16 +33,26 @@ def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict
     file_changes = summarize_files(files)
     priority = summarize_priority_files(files)
     evidence, evidence_truncated = build_evidence(files, MAX_EVIDENCE_LINES)
-    context_coverage = build_context_coverage(file_changes, evidence, evidence_truncated)
+    selected_context, context_truncated = build_selected_context(files)
+    rule_findings = run_rule_checks(files)
+    context_coverage = build_context_coverage(file_changes, selected_context, evidence_truncated or context_truncated)
     pr_overview = build_pr_overview(pr, file_changes)
-    messages = build_messages(pr_overview, file_changes, priority, context_coverage, evidence)
+    messages = build_messages(
+        pr_overview,
+        file_changes,
+        priority,
+        context_coverage,
+        evidence,
+        selected_context,
+        rule_findings,
+    )
 
     try:
         report = call_qwen(messages, api_key, model)
     except QwenError as exc:
         raise ReviewError(str(exc)) from exc
 
-    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, model)
+    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, rule_findings, model)
 
 
 def build_messages(
@@ -50,20 +61,26 @@ def build_messages(
     priority_files: list[dict],
     context_coverage: dict,
     evidence: list[dict],
+    selected_context: list[dict] | None = None,
+    rule_findings: list[dict] | None = None,
 ) -> list[dict]:
     system = (
         "You are ReviewPilot, an evidence-first AI PR reviewer. "
-        "Use only the provided PR overview, file changes, priority files, context coverage, and evidence. "
+        "Use only the provided PR overview, risk-aware file ranking, context coverage, selected diff context, "
+        "rule findings, and evidence. "
         "Do not invent files, APIs, database tables, dependencies, release status, or line numbers. "
-        "Return JSON only."
+        "Return Chinese JSON only."
     )
     user = {
-        "task": "生成中文 PR Review 报告，体现真实开发者 Review 流程。",
+        "task": "生成中文 PR Review 报告，体现风险感知型 AI PR Review 流程。",
         "rules": [
             "summary 必须总结完整 PR 变更，不只总结 risks。",
             "changed_modules 必须覆盖主要业务模块；即使没有风险，也要总结模块变更。",
-            "risks 只输出有明确 evidence 的问题；不要为了凑数量输出泛泛建议。",
-            "不确定的问题不要放进 risks，放进 review_comments，并标记 type 为 needs_human_check。",
+            "必须结合 selected_context 与 rule_findings，但不要机械照抄规则结果。",
+            "risks 只输出有明确 evidence 或 rule_finding 支撑的问题；不要为了凑数量输出泛泛建议。",
+            "type 只能是 confirmed_issue、potential_risk、needs_human_check。",
+            "没有明确证据的问题不要输出为 confirmed_issue。",
+            "不确定的问题标记为 needs_human_check。",
             "不要基于过时模型记忆判断第三方库版本状态。",
             "不要把 package-lock.json、yarn.lock、pnpm-lock.yaml 作为主要风险来源。",
             "如果 context_coverage.context_truncated 为 true，必须在 limitations 中说明覆盖范围和人工复核建议。",
@@ -72,6 +89,8 @@ def build_messages(
         "file_changes": file_changes,
         "priority_files": priority_files,
         "context_coverage": context_coverage,
+        "selected_context": selected_context or [],
+        "rule_findings": rule_findings or [],
         "evidence": evidence,
         "schema": {
             "summary": "string",
@@ -83,7 +102,7 @@ def build_messages(
             "risks": [{
                 "file": "changed file path",
                 "risk_level": "low | medium | high",
-                "type": "bug | security | test | maintainability | performance | dependency",
+                "type": "confirmed_issue | potential_risk | needs_human_check",
                 "evidence": "exact diff evidence",
                 "issue": "what is wrong",
                 "reason": "why this is a real risk",
@@ -115,8 +134,11 @@ def build_pr_overview(pr: dict, file_changes: list[dict]) -> dict:
     }
 
 
-def build_context_coverage(file_changes: list[dict], evidence: list[dict], truncated: bool) -> dict:
-    analyzed = sorted({item["file"] for item in evidence})
+def build_context_coverage(file_changes: list[dict], context_items: list[dict], truncated: bool) -> dict:
+    analyzed = sorted({
+        item["file"] for item in context_items
+        if item.get("mode", "deep") == "deep" and item.get("file")
+    })
     skipped = [file["filename"] for file in file_changes if file["filename"] not in analyzed]
     return {
         "total_files": len(file_changes),
@@ -125,8 +147,8 @@ def build_context_coverage(file_changes: list[dict], evidence: list[dict], trunc
         "skipped_files": skipped,
         "context_truncated": bool(truncated),
         "strategy": (
-            "优先分析 src/app/server/backend/frontend 下的源代码文件，以及 router、store、context、"
-            "provider、api、service、auth、permission 等关键路径；降低 lock 文件、dist/build 产物和静态资源权重。"
+            "风险感知型上下文选择：先为每个文件计算 risk_score，再按分数从高到低选择重点上下文；"
+            "高风险源代码保留更多 patch，低风险文件仅保留摘要；lock 文件、dist/build 产物和静态资源默认不进入深度 AI Review。"
         ),
     }
 
@@ -137,6 +159,7 @@ def normalize_report(
     file_changes: list[dict],
     priority_files: list[dict],
     context_coverage: dict,
+    rule_findings: list[dict],
     model: str,
 ) -> dict:
     file_paths = {file["filename"] for file in file_changes}
@@ -157,7 +180,9 @@ def normalize_report(
         "file_changes": file_changes,
         "files": file_changes,
         "priority_files": priority_files,
+        "risk_ranking": priority_files,
         "context_coverage": context_coverage,
+        "rule_findings": rule_findings,
         "changed_modules": changed_modules,
         "risks": risks,
         "findings": risks,
@@ -171,6 +196,7 @@ def normalize_report(
 
 def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
     risks = []
+    allowed_types = {"confirmed_issue", "potential_risk", "needs_human_check"}
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
@@ -187,11 +213,14 @@ def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
             confidence = max(0, min(1, float(confidence)))
         except (TypeError, ValueError):
             confidence = 0.5
+        risk_type = item.get("type", "potential_risk")
+        if risk_type not in allowed_types:
+            risk_type = "potential_risk"
         risks.append({
             "file": file,
             "risk_level": risk_level,
             "severity": risk_level,
-            "type": item.get("type", "maintainability"),
+            "type": risk_type,
             "evidence": item.get("evidence", ""),
             "issue": item.get("issue", item.get("message", "")),
             "reason": item.get("reason", ""),

@@ -38,6 +38,7 @@ const overviewBox = document.querySelector("#overviewBox");
 const coverageBox = document.querySelector("#coverageBox");
 const filesBox = document.querySelector("#files");
 const priorityFilesBox = document.querySelector("#priorityFiles");
+const ruleFindingsBox = document.querySelector("#ruleFindings");
 const modulesBox = document.querySelector("#modules");
 const risksBox = document.querySelector("#risks");
 const commentsBox = document.querySelector("#comments");
@@ -281,7 +282,8 @@ function renderReport(data) {
   const risks = data.risks || data.findings || [];
   const modules = data.changed_modules || [];
   const comments = data.review_comments || [];
-  const priorityFiles = data.priority_files || [];
+  const priorityFiles = data.risk_ranking || data.priority_files || [];
+  const ruleFindings = data.rule_findings || [];
   const coverage = data.context_coverage || {};
   const overview = data.pr_overview || {};
   const additions = fileChanges.reduce((sum, file) => sum + Number(file.additions || 0), 0);
@@ -301,7 +303,8 @@ function renderReport(data) {
   overviewBox.innerHTML = renderOverview(overview, data.model);
   coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? fileChanges.map(renderFile).join("") : empty("暂无文件");
-  priorityFilesBox.innerHTML = priorityFiles.length ? priorityFiles.map(renderPriorityFile).join("") : empty("暂无重点文件");
+  priorityFilesBox.innerHTML = priorityFiles.length ? priorityFiles.map(renderPriorityFile).join("") : empty("暂无风险排序结果");
+  ruleFindingsBox.innerHTML = ruleFindings.length ? ruleFindings.map(renderRuleFinding).join("") : empty("规则层未发现需要提示的问题");
   modulesBox.innerHTML = modules.length ? modules.map(renderModule).join("") : empty("暂无模块总结");
   risksBox.innerHTML = risks.length ? risks.map(renderRisk).join("") : empty("未发现有明确证据的风险");
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
@@ -340,17 +343,36 @@ function renderFile(file) {
       <span>${escapeHtml(path)}</span>
       <span class="badge ${status.className}">${status.label}</span>
     </div>
-    <p>类型：${escapeHtml(file.category || "general")}；+${file.additions} / -${file.deletions}，${file.hunks || 0} 个 hunk</p>
+    <div class="risk-meter"><span style="width:${Number(file.risk_score || file.priority || 0)}%"></span></div>
+    <p>类型：${escapeHtml(file.category || "general")}；风险分 ${file.risk_score ?? file.priority ?? 0}；+${file.additions} / -${file.deletions}，${file.hunks || 0} 个 hunk</p>
+    <p>${escapeHtml((file.risk_reasons || []).join("；") || "普通变更文件")}</p>
   </article>`;
 }
 
 function renderPriorityFile(file) {
+  const score = Number(file.risk_score ?? file.priority ?? 0);
+  const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
+  const reasons = file.risk_reasons || (file.reason ? [file.reason] : []);
   return `<article class="card compact-card">
     <div class="card-title">
       <span>${escapeHtml(file.filename)}</span>
-      <span class="badge medium">${file.priority}</span>
+      <span class="badge ${level}">${score}</span>
     </div>
-    <p>${escapeHtml(file.reason || "重点文件")}</p>
+    <div class="risk-meter"><span style="width:${score}%"></span></div>
+    <p>${escapeHtml(reasons.join("；") || "普通变更文件")}</p>
+  </article>`;
+}
+
+function renderRuleFinding(item) {
+  return `<article class="card">
+    <div class="card-title">
+      <span>${escapeHtml(item.file || "全局规则")}</span>
+      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(typeText(item.type))}</span>
+    </div>
+    <p><strong>规则证据：</strong>${escapeHtml(item.evidence || "")}</p>
+    <p><strong>提示：</strong>${escapeHtml(item.issue || "")}</p>
+    <p><strong>原因：</strong>${escapeHtml(item.reason || "")}</p>
+    <p><strong>建议：</strong>${escapeHtml(item.suggestion || "")}</p>
   </article>`;
 }
 
@@ -410,6 +432,8 @@ function typeText(type) {
     maintainability: "可维护性",
     question: "需要确认",
     needs_human_check: "需要人工复核",
+    confirmed_issue: "明确问题",
+    potential_risk: "潜在风险",
     praise: "正向反馈",
     follow_up: "后续建议",
   };
