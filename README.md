@@ -12,6 +12,15 @@ ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公
 - 要求每条 Review 建议包含文件、证据、风险等级、置信度和修改建议。
 - API Key 只保存在本地后端环境变量中，不暴露给浏览器。
 
+## 项目文档
+
+- [需求文档](docs/需求文档.md)
+- [接口文档](docs/接口文档.md)
+- [Demo 样例文档](docs/Demo样例文档.md)
+- [赛题对齐说明](docs/赛题对齐说明.md)
+- [提交与 PR 规范](docs/提交与PR规范.md)
+- [架构设计](docs/architecture.md)
+
 ## 本地运行
 
 先设置千问 API Key：

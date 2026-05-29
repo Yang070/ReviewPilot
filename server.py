@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
             pr_url = payload.get("prUrl", "")
             diff = payload.get("diff", "")
             if not isinstance(pr_url, str) or not isinstance(diff, str):
-                raise ReviewError("Request fields prUrl and diff must be strings.")
+                raise ReviewError("请求字段 prUrl 和 diff 必须是字符串。")
             result = review_change(pr_url, diff)
             self.send_json(result)
         except ReviewError as exc:
@@ -70,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"ReviewPilot running at http://127.0.0.1:{PORT}")
+    print(f"ReviewPilot 已启动：http://127.0.0.1:{PORT}")
     server.serve_forever()
 
 

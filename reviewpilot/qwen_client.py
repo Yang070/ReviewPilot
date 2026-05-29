@@ -12,7 +12,7 @@ class QwenError(Exception):
 def call_qwen(messages: list[dict]) -> dict:
     api_key = (os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
     if not api_key:
-        raise QwenError("Missing DASHSCOPE_API_KEY or QWEN_API_KEY environment variable.")
+        raise QwenError("缺少 DASHSCOPE_API_KEY 或 QWEN_API_KEY 环境变量。")
 
     base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     model = os.getenv("QWEN_MODEL", "qwen-plus")
@@ -36,9 +36,9 @@ def call_qwen(messages: list[dict]) -> dict:
             data = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise QwenError(f"Qwen request failed: HTTP {exc.code} {detail[:300]}") from exc
+        raise QwenError(f"千问请求失败：HTTP {exc.code} {detail[:300]}") from exc
     except URLError as exc:
-        raise QwenError(f"Qwen network error: {exc.reason}") from exc
+        raise QwenError(f"千问网络错误：{exc.reason}") from exc
 
     content = data["choices"][0]["message"]["content"]
     return parse_json_content(content)
@@ -52,4 +52,4 @@ def parse_json_content(content: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise QwenError("Qwen returned non-JSON review content.") from exc
+        raise QwenError("千问返回了非 JSON 格式的评审内容。") from exc

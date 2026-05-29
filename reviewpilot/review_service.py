@@ -17,11 +17,11 @@ def review_change(pr_url: str, diff_text: str) -> dict:
             raise ReviewError(str(exc)) from exc
 
     if not diff_text.strip():
-        raise ReviewError("Provide a public GitHub PR URL or paste a unified diff.")
+        raise ReviewError("请提供公开 GitHub PR 链接，或粘贴 unified diff。")
 
     files = parse_diff(diff_text)
     if not files:
-        raise ReviewError("No changed files were parsed from the diff.")
+        raise ReviewError("没有从 diff 中解析到变更文件。")
 
     file_summary = summarize_files(files)
     evidence = build_evidence(files)
