@@ -28,13 +28,26 @@ class DiffParserTest(unittest.TestCase):
 +
 +console.log("x")
 """
-        evidence = build_evidence(parse_diff(diff))
+        evidence, truncated = build_evidence(parse_diff(diff))
         self.assertEqual(len(evidence), 1)
+        self.assertFalse(truncated)
         self.assertIn("debug-log", evidence[0]["signals"])
 
     def test_review_prompt_requires_chinese_output(self):
-        messages = build_messages({}, [], [])
+        messages = build_messages({}, [], [], False)
         self.assertIn("Chinese", messages[1]["content"])
+        self.assertIn("changed_modules", messages[1]["content"])
+
+    def test_lock_file_is_deprioritized_without_signals(self):
+        diff = """diff --git a/package-lock.json b/package-lock.json
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,1 +1,2 @@
++{"version":"1.0.1"}
+"""
+        evidence, truncated = build_evidence(parse_diff(diff))
+        self.assertEqual(evidence, [])
+        self.assertFalse(truncated)
 
 
 if __name__ == "__main__":

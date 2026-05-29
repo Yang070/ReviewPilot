@@ -252,7 +252,7 @@ button:hover {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -282,6 +282,13 @@ button:hover {
   gap: 16px;
 }
 
+.columns > section,
+.card,
+.report-panel,
+.stack {
+  min-width: 0;
+}
+
 .stack {
   display: grid;
   gap: 10px;
@@ -299,6 +306,28 @@ button:hover {
 .card p,
 .tests li {
   color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.card-title span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.section-gap {
+  margin-top: 18px;
+}
+
+.notice {
+  margin-bottom: 18px;
+  border: 1px solid #fdb022;
+  border-radius: 8px;
+  background: #fffaeb;
+  color: #93370d;
+  padding: 12px;
   line-height: 1.5;
 }
 

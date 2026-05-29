@@ -13,6 +13,7 @@ class ChangedLine:
 @dataclass
 class ChangedFile:
     path: str
+    status: str = "modified"
     additions: int = 0
     deletions: int = 0
     hunks: list[str] = field(default_factory=list)
@@ -38,6 +39,19 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
             continue
 
         if current is None:
+            continue
+
+        if raw_line.startswith("new file mode"):
+            current.status = "added"
+            continue
+
+        if raw_line.startswith("deleted file mode"):
+            current.status = "deleted"
+            continue
+
+        if raw_line.startswith("rename to "):
+            current.status = "renamed"
+            current.path = raw_line.removeprefix("rename to ").strip()
             continue
 
         if raw_line.startswith("@@"):
@@ -68,39 +82,50 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
     return files
 
 
-def build_evidence(files: list[ChangedFile], max_lines=80) -> list[dict]:
+def build_evidence(files: list[ChangedFile], max_lines=80) -> tuple[list[dict], bool]:
     evidence = []
-    for file in files:
+    truncated = False
+    ordered_files = sorted(files, key=lambda file: (is_lock_file(file.path), file.path))
+    for file in ordered_files:
         for line in file.lines:
             if line.kind != "add":
                 continue
             text = line.content.strip()
             if not text:
                 continue
+            signals = detect_signals(file.path, text)
+            if is_lock_file(file.path) and set(signals) <= {"lockfile-file"}:
+                continue
             evidence.append({
                 "file": file.path,
                 "line": line.new_line,
                 "hunk": line.hunk,
                 "code": text[:240],
-                "signals": detect_signals(file.path, text),
+                "signals": signals,
             })
             if len(evidence) >= max_lines:
-                return evidence
-    return evidence
+                truncated = True
+                return evidence, truncated
+    return evidence, truncated
 
 
 def summarize_files(files: list[ChangedFile]) -> list[dict]:
     return [{
+        "filename": file.path,
         "path": file.path,
+        "status": file.status,
         "additions": file.additions,
         "deletions": file.deletions,
         "hunks": len(file.hunks),
         "category": classify_file(file.path),
+        "isLockFile": is_lock_file(file.path),
     } for file in files]
 
 
 def classify_file(path: str) -> str:
     lowered = path.lower()
+    if is_lock_file(path):
+        return "lockfile"
     if re.search(r"auth|login|token|session|permission|acl|role", lowered):
         return "auth"
     if re.search(r"pay|payment|order|billing|charge|refund", lowered):
@@ -114,6 +139,11 @@ def classify_file(path: str) -> str:
     if re.search(r"\.(tsx|jsx|vue|css|html)$", lowered):
         return "frontend"
     return "general"
+
+
+def is_lock_file(path: str) -> bool:
+    lowered = path.lower()
+    return lowered.endswith(("package-lock.json", "yarn.lock", "pnpm-lock.yaml"))
 
 
 def detect_signals(path: str, code: str) -> list[str]:
