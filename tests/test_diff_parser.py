@@ -1,7 +1,6 @@
 import unittest
 
 from reviewpilot.diff_parser import build_evidence, parse_diff
-from reviewpilot.review_service import detect_language
 
 
 class DiffParserTest(unittest.TestCase):
@@ -31,14 +30,6 @@ class DiffParserTest(unittest.TestCase):
         evidence = build_evidence(parse_diff(diff))
         self.assertEqual(len(evidence), 1)
         self.assertIn("debug-log", evidence[0]["signals"])
-
-    def test_detect_language_prefers_chinese_when_present(self):
-        language = detect_language({"title": "修复登录问题", "body": ""}, "")
-        self.assertEqual(language, "Chinese")
-
-    def test_detect_language_uses_english_without_cjk(self):
-        language = detect_language({"title": "fix login bug", "body": ""}, "console.log('x')")
-        self.assertEqual(language, "English")
 
 
 if __name__ == "__main__":

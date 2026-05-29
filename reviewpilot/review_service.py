@@ -1,5 +1,3 @@
-import re
-
 from .diff_parser import build_evidence, parse_diff, summarize_files
 from .github_client import GitHubError, fetch_public_pr
 from .qwen_client import QwenError, call_qwen
@@ -27,18 +25,17 @@ def review_change(pr_url: str, diff_text: str) -> dict:
 
     file_summary = summarize_files(files)
     evidence = build_evidence(files)
-    language = detect_language(pr, diff_text)
-    messages = build_messages(pr, file_summary, evidence, language)
+    messages = build_messages(pr, file_summary, evidence)
 
     try:
         report = call_qwen(messages)
     except QwenError as exc:
         raise ReviewError(str(exc)) from exc
 
-    return normalize_report(report, pr, file_summary, evidence, language)
+    return normalize_report(report, pr, file_summary, evidence)
 
 
-def build_messages(pr: dict, files: list[dict], evidence: list[dict], language: str) -> list[dict]:
+def build_messages(pr: dict, files: list[dict], evidence: list[dict]) -> list[dict]:
     system = (
         "You are ReviewPilot, an AI PR reviewer. Review only the provided PR diff evidence. "
         "Do not invent files, functions, APIs, database tables, or line numbers. "
@@ -46,7 +43,7 @@ def build_messages(pr: dict, files: list[dict], evidence: list[dict], language: 
         "Return JSON only."
     )
     user = {
-        "task": f"Generate an evidence-based code review report in {language}.",
+        "task": "Generate an evidence-based code review report in Chinese.",
         "pr": {
             "title": pr.get("title", ""),
             "body": pr.get("body", ""),
@@ -76,7 +73,7 @@ def build_messages(pr: dict, files: list[dict], evidence: list[dict], language: 
     ]
 
 
-def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[dict], language: str) -> dict:
+def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[dict]) -> dict:
     file_paths = {file["path"] for file in files}
     findings = []
 
@@ -116,18 +113,8 @@ def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[d
         "findings": findings,
         "testSuggestions": report.get("testSuggestions", []),
         "evidenceCount": len(evidence),
-        "language": language,
         "rawEvidencePreview": evidence[:12],
     }
-
-
-def detect_language(pr: dict, diff_text: str) -> str:
-    text = " ".join([
-        pr.get("title", ""),
-        pr.get("body", ""),
-        diff_text[:3000],
-    ])
-    return "Chinese" if re.search(r"[\u4e00-\u9fff]", text) else "English"
 
 
 def json_dumps(data: dict) -> str:
