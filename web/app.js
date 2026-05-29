@@ -79,12 +79,20 @@ const modelConfigList = document.querySelector("#modelConfigList");
 const testModelBtn = document.querySelector("#testModelBtn");
 const resetModelFormBtn = document.querySelector("#resetModelFormBtn");
 const historyList = document.querySelector("#historyList");
+const historyDetail = document.querySelector("#historyDetail");
+const historyDetailTitle = document.querySelector("#historyDetailTitle");
+const historyDetailMeta = document.querySelector("#historyDetailMeta");
+const historyDetailSummary = document.querySelector("#historyDetailSummary");
+const historyMarkdownPreview = document.querySelector("#historyMarkdownPreview");
+const historyDownloadBtn = document.querySelector("#historyDownloadBtn");
+const historyCloseBtn = document.querySelector("#historyCloseBtn");
 
 let currentUser = null;
 let modelConfigs = [];
 let providers = [];
 let lastSummary = "";
 let lastReport = null;
+let selectedHistoryReport = null;
 let progressTimer = null;
 let activeInputTab = "url";
 
@@ -276,6 +284,12 @@ quickTestModelBtn.addEventListener("click", async () => {
   } catch (err) {
     showError(err.message);
   }
+});
+
+historyDownloadBtn.addEventListener("click", () => downloadMarkdownReport(selectedHistoryReport));
+historyCloseBtn.addEventListener("click", () => {
+  selectedHistoryReport = null;
+  historyDetail.classList.add("hidden");
 });
 
 reportTabs.addEventListener("click", (event) => {
@@ -522,6 +536,10 @@ async function loadHistory() {
   const data = await apiFetch("/api/history");
   const items = data.items || [];
   historyList.innerHTML = items.length ? items.map(renderHistoryItem).join("") : empty("暂无历史记录。完成一次 Review 后会自动保存。");
+  if (!items.length) {
+    selectedHistoryReport = null;
+    historyDetail.classList.add("hidden");
+  }
 }
 
 function renderHistoryItem(item) {
@@ -545,8 +563,7 @@ historyList.addEventListener("click", async (event) => {
   try {
     if (openId) {
       const item = await apiFetch(`/api/history/${openId}`);
-      navigate("/review");
-      renderReport(item.report);
+      renderHistoryDetail(item);
     }
     if (deleteId && confirm("确定删除这条历史记录吗？")) {
       await apiFetch(`/api/history/${deleteId}`, {method: "DELETE"});
@@ -556,6 +573,16 @@ historyList.addEventListener("click", async (event) => {
     showError(err.message);
   }
 });
+
+function renderHistoryDetail(item) {
+  selectedHistoryReport = item.report;
+  const report = item.report || {};
+  historyDetail.classList.remove("hidden");
+  historyDetailTitle.textContent = item.prTitle || report.pr_overview?.title || "历史报告";
+  historyDetailMeta.textContent = `模型：${item.model || report.model || "未知"}；风险数：${item.riskCount ?? (report.risks || []).length}；时间：${formatTime(item.analyzedAt)}`;
+  historyDetailSummary.textContent = report.summary || "该历史记录没有摘要。";
+  historyMarkdownPreview.textContent = buildMarkdownReport(report);
+}
 
 function renderReport(data) {
   lastReport = data;
@@ -623,14 +650,28 @@ function renderFile(file) {
   const status = statusText(file.status);
   const score = Number(file.risk_score || file.priority || 0);
   const path = file.filename || file.path;
+  const additions = Number(file.additions || 0);
+  const deletions = Number(file.deletions || 0);
+  const hunks = Number(file.hunks || 0);
+  const risk = riskScoreText(score);
+  const reasons = (file.risk_reasons || []).join("；") || "普通变更文件";
+  const lowRiskNote = score < 40
+    ? `<p class="explain-note">该文件变更规模较小或不属于核心业务代码，因此未进入深度分析。</p>`
+    : "";
   return `<article class="card">
     <div class="card-title">
       <span>${escapeHtml(path)}</span>
-      <span class="badge ${status.className}">${status.label}</span>
+      <span class="badge ${risk.className}">${risk.label}</span>
     </div>
     <div class="risk-meter"><span style="width:${score}%"></span></div>
-    <p>类型：${escapeHtml(file.category || "general")}；风险分 ${score}；+${file.additions} / -${file.deletions}，${file.hunks || 0} 个 hunk</p>
-    <p>${escapeHtml((file.risk_reasons || []).join("；") || "普通变更文件")}</p>
+    <p><strong>${escapeHtml(categoryText(file.category))}</strong>，${lineChangeText(additions, deletions)}，${hunkText(hunks)}。</p>
+    <p>风险判断：${risk.label}，风险分 ${score}。状态：${status.label}。</p>
+    <p>判断原因：${escapeHtml(reasons)}</p>
+    ${lowRiskNote}
+    <details class="tech-details">
+      <summary>查看原始技术字段</summary>
+      <p>category: ${escapeHtml(file.category || "general")}；risk_score: ${score}；additions: ${additions}；deletions: ${deletions}；hunks: ${hunks}</p>
+    </details>
   </article>`;
 }
 
@@ -879,6 +920,34 @@ function statusText(status) {
     renamed: {label: "重命名", className: "medium"},
   };
   return map[status] || {label: status || "修改", className: "medium"};
+}
+
+function riskScoreText(score) {
+  if (score >= 70) return {label: "高风险", className: "high"};
+  if (score >= 40) return {label: "中风险", className: "medium"};
+  return {label: "低风险", className: "low"};
+}
+
+function categoryText(category) {
+  const map = {
+    general: "普通配置/通用文件",
+    lockfile: "依赖锁定文件",
+    auth: "登录/权限相关文件",
+    payment: "支付/订单相关文件",
+    data: "数据/模型相关文件",
+    test: "测试文件",
+    config: "配置文件",
+    frontend: "前端界面文件",
+  };
+  return map[category] || "普通配置/通用文件";
+}
+
+function lineChangeText(additions, deletions) {
+  return `新增 ${additions} 行，删除 ${deletions} 行，共 ${additions + deletions} 行变更`;
+}
+
+function hunkText(hunks) {
+  return `${hunks} 处连续变更`;
 }
 
 function typeText(type) {

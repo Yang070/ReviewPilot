@@ -300,11 +300,27 @@
         <div class="section-head">
           <div>
             <h2>History</h2>
-            <p>查看每次 PR Review 的完整报告，便于复盘和展示持续交付过程。</p>
+            <p>这里只展示做过的 Review 记录。点击记录可以在当前页面查看报告，不会跳回主工作台。</p>
           </div>
           <button data-route="/review" type="button">返回 Review</button>
         </div>
-        <div id="historyList" class="stack"></div>
+        <div class="history-layout">
+          <div id="historyList" class="stack"></div>
+          <section id="historyDetail" class="panel history-detail hidden">
+            <div class="section-head">
+              <div>
+                <h3 id="historyDetailTitle">历史报告</h3>
+                <p id="historyDetailMeta"></p>
+              </div>
+              <div class="inline-actions">
+                <button id="historyDownloadBtn" type="button">下载 Markdown</button>
+                <button id="historyCloseBtn" type="button">关闭</button>
+              </div>
+            </div>
+            <p id="historyDetailSummary" class="history-summary"></p>
+            <pre id="historyMarkdownPreview" class="markdown-preview"></pre>
+          </section>
+        </div>
       </section>
     </main>
 
