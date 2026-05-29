@@ -1,7 +1,6 @@
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import json
-import os
 import re
 
 
@@ -9,13 +8,12 @@ class QwenError(Exception):
     pass
 
 
-def call_qwen(messages: list[dict]) -> dict:
-    api_key = (os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY") or "").strip()
+def call_qwen(messages: list[dict], api_key: str, model: str, base_url=None) -> dict:
+    api_key = api_key.strip()
     if not api_key:
-        raise QwenError("缺少 DASHSCOPE_API_KEY 或 QWEN_API_KEY 环境变量。")
+        raise QwenError("当前账号未配置千问 API Key，请先在设置中填写。")
 
-    base_url = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    model = os.getenv("QWEN_MODEL", "qwen-plus")
+    base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     payload = {
         "model": model,
         "messages": messages,

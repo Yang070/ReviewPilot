@@ -1,8 +1,23 @@
+const authView = document.querySelector("#authView");
+const appView = document.querySelector("#appView");
+const loginForm = document.querySelector("#loginForm");
+const registerForm = document.querySelector("#registerForm");
+const settingsDialog = document.querySelector("#settingsDialog");
+const settingsForm = document.querySelector("#settingsForm");
+const settingsBtn = document.querySelector("#settingsBtn");
+const closeSettingsBtn = document.querySelector("#closeSettingsBtn");
+const logoutBtn = document.querySelector("#logoutBtn");
+const userLabel = document.querySelector("#userLabel");
+const statusBox = document.querySelector("#status");
+
 const prUrl = document.querySelector("#prUrl");
 const diffInput = document.querySelector("#diffInput");
 const reviewBtn = document.querySelector("#reviewBtn");
 const sampleBtn = document.querySelector("#sampleBtn");
-const statusBox = document.querySelector("#status");
+const modelPreset = document.querySelector("#modelPreset");
+const customModel = document.querySelector("#customModel");
+const customModelField = document.querySelector("#customModelField");
+
 const reportTitle = document.querySelector("#reportTitle");
 const summaryText = document.querySelector("#summaryText");
 const riskBadge = document.querySelector("#riskBadge");
@@ -12,6 +27,8 @@ const findingCount = document.querySelector("#findingCount");
 const filesBox = document.querySelector("#files");
 const findingsBox = document.querySelector("#findings");
 const testsBox = document.querySelector("#tests");
+
+let currentUser = null;
 
 const sampleDiff = `diff --git a/src/auth.ts b/src/auth.ts
 index 1111111..2222222 100644
@@ -35,6 +52,64 @@ index 3333333..4444444 100644
 +  await gateway.charge(amount);
  }`;
 
+loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = {
+    username: document.querySelector("#loginUsername").value,
+    password: document.querySelector("#loginPassword").value,
+  };
+  await authRequest("/api/login", payload);
+});
+
+registerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = {
+    username: document.querySelector("#registerUsername").value,
+    password: document.querySelector("#registerPassword").value,
+    apiKey: document.querySelector("#registerApiKey").value,
+    defaultModel: document.querySelector("#registerDefaultModel").value,
+  };
+  await authRequest("/api/register", payload);
+});
+
+logoutBtn.addEventListener("click", async () => {
+  await apiFetch("/api/logout", {method: "POST"});
+  localStorage.removeItem("reviewpilot_token");
+  currentUser = null;
+  renderAuthState();
+});
+
+settingsBtn.addEventListener("click", () => {
+  document.querySelector("#settingsApiKey").value = "";
+  document.querySelector("#settingsDefaultModel").value = currentUser?.defaultModel || "qwen-plus";
+  settingsDialog.showModal();
+});
+
+closeSettingsBtn.addEventListener("click", () => {
+  settingsDialog.close();
+});
+
+settingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = {
+    apiKey: document.querySelector("#settingsApiKey").value,
+    defaultModel: document.querySelector("#settingsDefaultModel").value,
+  };
+  const data = await apiFetch("/api/settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  currentUser = data.user;
+  applyDefaultModel(currentUser.defaultModel);
+  settingsDialog.close();
+  renderAuthState();
+  setStatus("设置已保存");
+});
+
+modelPreset.addEventListener("change", () => {
+  customModelField.classList.toggle("hidden", modelPreset.value !== "custom");
+});
+
 sampleBtn.addEventListener("click", () => {
   diffInput.value = sampleDiff;
   prUrl.value = "";
@@ -44,13 +119,14 @@ reviewBtn.addEventListener("click", async () => {
   setStatus("评审中...");
   reviewBtn.disabled = true;
   try {
-    const res = await fetch("/api/review", {
+    const data = await apiFetch("/api/review", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({prUrl: prUrl.value.trim(), diff: diffInput.value}),
+      body: JSON.stringify({
+        prUrl: prUrl.value.trim(),
+        diff: diffInput.value,
+        model: selectedModel(),
+      }),
     });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "评审失败");
     renderReport(data);
     setStatus("完成");
   } catch (err) {
@@ -59,6 +135,93 @@ reviewBtn.addEventListener("click", async () => {
     reviewBtn.disabled = false;
   }
 });
+
+async function authRequest(path, payload) {
+  try {
+    const data = await rawFetch(path, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    localStorage.setItem("reviewpilot_token", data.token);
+    currentUser = data.user;
+    applyDefaultModel(currentUser.defaultModel);
+    renderAuthState();
+    setStatus("已登录");
+  } catch (err) {
+    setStatus(err.message);
+  }
+}
+
+async function loadSession() {
+  const token = localStorage.getItem("reviewpilot_token");
+  if (!token) {
+    renderAuthState();
+    return;
+  }
+  try {
+    currentUser = await apiFetch("/api/me");
+    applyDefaultModel(currentUser.defaultModel);
+  } catch {
+    localStorage.removeItem("reviewpilot_token");
+    currentUser = null;
+  }
+  renderAuthState();
+}
+
+function renderAuthState() {
+  const loggedIn = Boolean(currentUser);
+  authView.classList.toggle("hidden", loggedIn);
+  appView.classList.toggle("hidden", !loggedIn);
+  settingsBtn.classList.toggle("hidden", !loggedIn);
+  logoutBtn.classList.toggle("hidden", !loggedIn);
+  userLabel.classList.toggle("hidden", !loggedIn);
+  userLabel.textContent = loggedIn ? `当前账号：${currentUser.username}` : "";
+}
+
+function selectedModel() {
+  if (modelPreset.value === "custom") {
+    return customModel.value.trim();
+  }
+  return modelPreset.value;
+}
+
+function applyDefaultModel(model) {
+  const options = Array.from(modelPreset.options).map(option => option.value);
+  if (options.includes(model)) {
+    modelPreset.value = model;
+    customModel.value = "";
+  } else {
+    modelPreset.value = "custom";
+    customModel.value = model;
+  }
+  customModelField.classList.toggle("hidden", modelPreset.value !== "custom");
+}
+
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem("reviewpilot_token");
+  return rawFetch(path, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+async function rawFetch(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || "请求失败");
+  }
+  return data;
+}
 
 function renderReport(data) {
   reportTitle.textContent = data.pr.title || "评审报告";
@@ -79,7 +242,7 @@ function renderFile(file) {
       <span>${escapeHtml(file.path)}</span>
       <span class="badge low">${file.category}</span>
     </div>
-    <p>+${file.additions} / -${file.deletions}, ${file.hunks} hunks</p>
+    <p>+${file.additions} / -${file.deletions}, ${file.hunks} 个 hunk</p>
   </article>`;
 }
 
@@ -112,3 +275,5 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+loadSession();

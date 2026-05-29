@@ -7,3 +7,5 @@ __pycache__/
 *.log
 .idea/
 .vscode/
+data/users.json
+data/app_secret.key

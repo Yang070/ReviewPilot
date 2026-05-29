@@ -1,13 +1,16 @@
 from .diff_parser import build_evidence, parse_diff, summarize_files
 from .github_client import GitHubError, fetch_public_pr
 from .qwen_client import QwenError, call_qwen
+from .user_store import normalize_model
+import json
 
 
 class ReviewError(Exception):
     pass
 
 
-def review_change(pr_url: str, diff_text: str) -> dict:
+def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict:
+    model = normalize_model(model)
     pr = {}
     if pr_url.strip():
         try:
@@ -28,11 +31,11 @@ def review_change(pr_url: str, diff_text: str) -> dict:
     messages = build_messages(pr, file_summary, evidence)
 
     try:
-        report = call_qwen(messages)
+        report = call_qwen(messages, api_key, model)
     except QwenError as exc:
         raise ReviewError(str(exc)) from exc
 
-    return normalize_report(report, pr, file_summary, evidence)
+    return normalize_report(report, pr, file_summary, evidence, model)
 
 
 def build_messages(pr: dict, files: list[dict], evidence: list[dict]) -> list[dict]:
@@ -69,11 +72,11 @@ def build_messages(pr: dict, files: list[dict], evidence: list[dict]) -> list[di
     }
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": json_dumps(user)},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False, separators=(",", ":"))},
     ]
 
 
-def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[dict]) -> dict:
+def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[dict], model: str) -> dict:
     file_paths = {file["path"] for file in files}
     findings = []
 
@@ -109,14 +112,10 @@ def normalize_report(report: dict, pr: dict, files: list[dict], evidence: list[d
         },
         "summary": report.get("summary", ""),
         "riskLevel": report.get("riskLevel", "low"),
+        "model": model,
         "files": files,
         "findings": findings,
         "testSuggestions": report.get("testSuggestions", []),
         "evidenceCount": len(evidence),
         "rawEvidencePreview": evidence[:12],
     }
-
-
-def json_dumps(data: dict) -> str:
-    import json
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
