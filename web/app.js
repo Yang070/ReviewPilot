@@ -50,7 +50,7 @@ reviewBtn.addEventListener("click", async () => {
       body: JSON.stringify({prUrl: prUrl.value.trim(), diff: diffInput.value}),
     });
     const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "Review failed");
+    if (!res.ok || data.error) throw new Error(data.error || "评审失败");
     renderReport(data);
     setStatus("完成");
   } catch (err) {

@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
         except ReviewError as exc:
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
-            self.send_json({"error": f"Unexpected server error: {exc}"}, status=500)
+            self.send_json({"error": f"服务端发生未预期错误：{exc}"}, status=500)
 
     def serve_static(self):
         rel_path = self.path.split("?", 1)[0].lstrip("/") or "index.html"
