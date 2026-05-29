@@ -18,16 +18,15 @@ def parse_pr_url(url: str) -> tuple[str, str, int]:
 
 def fetch_public_pr(pr_url: str) -> dict:
     owner, repo, number = parse_pr_url(pr_url)
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{number}"
-    pr = request_json(api_url)
-    diff = request_text(pr["diff_url"])
+    html_url = f"https://github.com/{owner}/{repo}/pull/{number}"
+    diff = request_text(f"{html_url}.diff", accept="text/plain")
     return {
         "owner": owner,
         "repo": repo,
         "number": number,
-        "title": pr.get("title", ""),
-        "body": pr.get("body", ""),
-        "html_url": pr.get("html_url", pr_url),
+        "title": f"{owner}/{repo}#{number}",
+        "body": "",
+        "html_url": html_url,
         "diff": diff,
     }
 
@@ -37,12 +36,12 @@ def request_json(url: str) -> dict:
     return json.loads(data)
 
 
-def request_text(url: str) -> str:
+def request_text(url: str, accept="application/vnd.github+json") -> str:
     host = urlparse(url).netloc
     if host not in {"api.github.com", "github.com"}:
         raise GitHubError("当前仅支持 github.com 的公开 PR 链接。")
     req = Request(url, headers={
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "User-Agent": "ReviewPilot/0.1",
     })
     try:
@@ -50,7 +49,7 @@ def request_text(url: str) -> str:
             return resp.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         if exc.code == 403:
-            raise GitHubError("GitHub 访问频率受限，请稍后重试或手动粘贴 diff。") from exc
+            raise GitHubError("GitHub 暂时拒绝访问，请稍后重试，或打开 PR 页面复制 diff 后手动粘贴。") from exc
         if exc.code == 404:
             raise GitHubError("未找到公开 PR，或该仓库不是公开仓库。") from exc
         raise GitHubError(f"GitHub 请求失败：HTTP {exc.code}") from exc
