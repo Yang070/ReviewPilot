@@ -8,14 +8,30 @@
   </head>
   <body>
     <main class="layout">
-      <header class="topbar">
+      <header class="topbar global-sidebar">
         <button class="brand link-button" id="brandBtn" type="button">
           <span class="logo">RP</span>
           <span>
             <strong>ReviewPilot</strong>
-            <small>风险感知型 AI PR Review 助手</small>
+            <small>AI-native PR Review</small>
           </span>
         </button>
+        <nav class="side-nav" id="globalNav">
+          <button class="active" data-global-tab="code" data-icon="code" type="button">代码评审</button>
+          <button data-global-tab="overview" data-icon="layout" type="button">概览</button>
+          <button data-global-tab="overview" data-icon="file-text" type="button">摘要</button>
+          <button data-global-tab="audit" data-icon="shield" type="button">审计</button>
+          <button data-global-tab="ask" data-icon="message" type="button">AI 问答</button>
+          <button data-global-tab="code" data-icon="files" type="button">变更文件</button>
+          <button data-route="/history" data-icon="history" type="button">历史记录</button>
+          <button data-route="/settings/models" data-icon="sliders" type="button">模型设置</button>
+          <button data-route="/settings/rules" data-icon="settings" type="button">系统设置</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span>当前模型</span>
+          <strong id="sideModelName">未配置</strong>
+          <small id="sideAnalysisMode">快速分析</small>
+        </div>
         <div class="userbar">
           <span class="status hidden" id="userLabel"></span>
           <div class="menu hidden" id="userMenu">
@@ -208,9 +224,17 @@
               <div class="toolbar-brand">
                 <span class="mini-logo">RP</span>
                 <div>
-                  <strong>ReviewPilot</strong>
+                  <strong id="toolbarRepoLabel">ReviewPilot</strong>
                   <small id="toolbarPrLabel">等待选择 PR</small>
                 </div>
+              </div>
+              <div>
+                <span>状态</span>
+                <strong id="toolbarStatusLabel">未分析</strong>
+              </div>
+              <div>
+                <span>分支</span>
+                <strong id="toolbarBranchLabel">main</strong>
               </div>
               <div>
                 <span>模型</span>
@@ -252,6 +276,14 @@
             </div>
 
             <div class="report-pane" data-report-panel="code">
+              <section id="metricsDashboard" class="metrics-dashboard"></section>
+              <section class="top-priority-section">
+                <div class="section-title-row">
+                  <h3>优先查看 TOP 3</h3>
+                  <button class="ghost-button" data-global-tab="audit" type="button">查看全部高风险文件</button>
+                </div>
+                <div id="topPriorityList" class="top-priority-list"></div>
+              </section>
               <section class="diff-review-shell">
                 <aside class="diff-sidebar">
                   <div class="diff-toolbar">
@@ -285,6 +317,13 @@
                     <p>点击代码行右侧的批注标记，查看风险说明、审计结论和可复制 Review Comment。</p>
                   </div>
                 </aside>
+              </section>
+              <section class="issues-section">
+                <div class="section-title-row">
+                  <h3>AI 发现的问题</h3>
+                  <div class="segmented-control"><button class="active" type="button">AI 发现的问题</button><button type="button">已解决</button><button type="button">全部问题</button></div>
+                </div>
+                <div id="inlineIssueList" class="issue-list"></div>
               </section>
             </div>
 
@@ -417,10 +456,16 @@
         <div class="history-container">
         <div class="section-head">
           <div>
-            <h2>History</h2>
-            <p>这里只展示做过的 Review 记录。点击记录可以在当前页面查看报告，不会跳回主工作台。</p>
+            <h2>历史记录</h2>
+            <p>查看之前生成的 PR Review 报告。</p>
           </div>
           <button data-route="/review" type="button">返回 Review</button>
+        </div>
+        <div class="history-filters">
+          <input id="historySearchInput" placeholder="搜索 PR 或仓库">
+          <select id="historyRiskFilter"><option value="">全部风险</option><option value="high">高风险</option><option value="medium">中风险</option><option value="low">低风险</option></select>
+          <input id="historyModelFilter" placeholder="模型筛选">
+          <input id="historyDateFilter" type="date">
         </div>
         <div class="history-layout">
           <div id="historyList" class="stack"></div>

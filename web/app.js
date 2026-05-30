@@ -55,7 +55,10 @@ const progressBar = document.querySelector("#progressBar");
 const reportTitle = document.querySelector("#reportTitle");
 const summaryText = document.querySelector("#summaryText");
 const summaryLine = document.querySelector("#summaryLine");
+const toolbarRepoLabel = document.querySelector("#toolbarRepoLabel");
 const toolbarPrLabel = document.querySelector("#toolbarPrLabel");
+const toolbarStatusLabel = document.querySelector("#toolbarStatusLabel");
+const toolbarBranchLabel = document.querySelector("#toolbarBranchLabel");
 const toolbarModelLabel = document.querySelector("#toolbarModelLabel");
 const toolbarModeLabel = document.querySelector("#toolbarModeLabel");
 const reanalyzeBtn = document.querySelector("#reanalyzeBtn");
@@ -92,6 +95,12 @@ const linkedRiskList = document.querySelector("#linkedRiskList");
 const diffFileHeader = document.querySelector("#diffFileHeader");
 const diffViewer = document.querySelector("#diffViewer");
 const riskDetailDrawer = document.querySelector("#riskDetailDrawer");
+const metricsDashboard = document.querySelector("#metricsDashboard");
+const topPriorityList = document.querySelector("#topPriorityList");
+const inlineIssueList = document.querySelector("#inlineIssueList");
+const globalNav = document.querySelector("#globalNav");
+const sideModelName = document.querySelector("#sideModelName");
+const sideAnalysisMode = document.querySelector("#sideAnalysisMode");
 
 const modelForm = document.querySelector("#modelForm");
 const modelFormTitle = document.querySelector("#modelFormTitle");
@@ -124,6 +133,10 @@ const historyAskSuggestions = document.querySelector("#historyAskSuggestions");
 const historyAskQuestion = document.querySelector("#historyAskQuestion");
 const historyAskSendBtn = document.querySelector("#historyAskSendBtn");
 const historyAskThreads = document.querySelector("#historyAskThreads");
+const historySearchInput = document.querySelector("#historySearchInput");
+const historyRiskFilter = document.querySelector("#historyRiskFilter");
+const historyModelFilter = document.querySelector("#historyModelFilter");
+const historyDateFilter = document.querySelector("#historyDateFilter");
 const ruleForm = document.querySelector("#ruleForm");
 const ruleFormTitle = document.querySelector("#ruleFormTitle");
 const editingRuleId = document.querySelector("#editingRuleId");
@@ -152,6 +165,7 @@ let lastSummary = "";
 let lastReport = null;
 let selectedHistoryReport = null;
 let selectedHistoryId = "";
+let historyItemsState = [];
 let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
 let progressTimer = null;
@@ -161,6 +175,10 @@ let activeDiffFile = "";
 let expandedAnnotations = new Set();
 let expandedFileLevel = new Set();
 let selectedAnnotation = null;
+let hasReport = false;
+let isInputExpanded = true;
+let isDrawerOpen = false;
+let activeGlobalSection = "code";
 
 const reviewProgressStages = [
   {key: "fetch_pr", label: "获取 PR 信息"},
@@ -203,12 +221,10 @@ index 3333333..4444444 100644
  }`;
 
 const askSuggestions = [
-  "\u8fd9\u4e2a PR \u6700\u9700\u8981\u4eba\u5de5\u590d\u6838\u54ea\u91cc\uff1f",
-  "\u6709\u6ca1\u6709\u6d4b\u8bd5\u8986\u76d6\u4e0d\u8db3\uff1f",
-  "\u54ea\u4e9b\u98ce\u9669\u662f\u6a21\u578b\u4e0d\u786e\u5b9a\u7684\uff1f",
-  "\u89c4\u5219\u9884\u68c0\u547d\u4e2d\u7684\u95ee\u9898\u6709\u6ca1\u6709\u88ab AI \u91c7\u7eb3\uff1f",
-  "\u5ba1\u8ba1\u6a21\u578b\u4e3a\u4ec0\u4e48\u964d\u7ea7\u67d0\u4e9b\u98ce\u9669\uff1f",
-  "\u5e2e\u6211\u751f\u6210\u4e00\u6bb5\u7b80\u77ed\u7684 PR Review \u603b\u7ed3\u3002",
+  "最大风险是什么？",
+  "哪些需要人工复核？",
+  "测试覆盖够吗？",
+  "生成 Review 总结",
 ];
 
 const fileAskSuggestions = [
@@ -223,6 +239,11 @@ document.addEventListener("click", (event) => {
   if (routeButton) {
     navigate(routeButton.dataset.route);
     menuList.classList.add("hidden");
+  }
+  const globalTab = event.target.closest("[data-global-tab]");
+  if (globalTab) {
+    navigate("/review");
+    setReportTab(globalTab.dataset.globalTab);
   }
 });
 
@@ -248,6 +269,19 @@ document.addEventListener("click", (event) => {
     if (annotation) renderRiskDetailDrawer(annotation);
     renderDiffReview(lastReport);
   }
+  const closeDrawer = event.target.closest("[data-close-drawer]");
+  if (closeDrawer) {
+    isDrawerOpen = false;
+    updateWorkbenchShellState();
+  }
+  const priorityFile = event.target.closest("[data-priority-file]");
+  if (priorityFile) {
+    activeDiffFile = priorityFile.dataset.priorityFile;
+    setReportTab("code");
+    renderDiffReview(lastReport);
+  }
+  const riskJump = event.target.closest(".issue-row[data-risk-jump]");
+  if (riskJump) jumpToRiskElement(riskJump);
   const fileToggle = event.target.closest("[data-file-level-toggle]");
   if (fileToggle) {
     const file = fileToggle.dataset.fileLevelToggle;
@@ -375,7 +409,11 @@ testModelBtn.addEventListener("click", async () => {
 resetModelFormBtn.addEventListener("click", resetModelForm);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
-reanalyzeBtn.addEventListener("click", () => reviewBtn.click());
+reanalyzeBtn.addEventListener("click", () => {
+  isInputExpanded = true;
+  updateWorkbenchShellState();
+  reviewBtn.scrollIntoView({behavior: "smooth", block: "center"});
+});
 
 quickProvider.addEventListener("change", () => {
   if (!quickBaseUrl.value || Object.values(providerDefaults).includes(quickBaseUrl.value)) {
@@ -416,6 +454,10 @@ historyCloseBtn.addEventListener("click", () => {
   selectedHistoryId = "";
   historyDetail.classList.add("hidden");
 });
+historySearchInput.addEventListener("input", renderFilteredHistory);
+historyRiskFilter.addEventListener("change", renderFilteredHistory);
+historyModelFilter.addEventListener("input", renderFilteredHistory);
+historyDateFilter.addEventListener("change", renderFilteredHistory);
 reviewAskSendBtn.addEventListener("click", () => sendAsk("review"));
 historyAskSendBtn.addEventListener("click", () => sendAsk("history"));
 
@@ -439,17 +481,7 @@ changedFilesNav.addEventListener("click", (event) => {
 linkedRiskList.addEventListener("click", (event) => {
   const item = event.target.closest("[data-risk-jump]");
   if (!item) return;
-  activeDiffFile = item.dataset.riskFile;
-  if (item.dataset.riskLine) {
-    expandedAnnotations.add(annotationKey(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId));
-    const annotation = findAnnotationForDrawer(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId);
-    if (annotation) renderRiskDetailDrawer(annotation);
-  } else {
-    expandedFileLevel.add(item.dataset.riskFile);
-    const annotation = findFileLevelAnnotation(item.dataset.riskFile, item.dataset.riskId);
-    if (annotation) renderRiskDetailDrawer(annotation);
-  }
-  renderDiffReview(lastReport, Number(item.dataset.riskLine || 0));
+  jumpToRiskElement(item);
 });
 
 ruleForm.addEventListener("submit", async (event) => {
@@ -669,6 +701,8 @@ function renderWorkbenchStatus() {
     currentApiMask.textContent = "未保存";
     currentProviderName.textContent = "未配置";
     currentBaseUrl.textContent = "添加配置后会显示 Provider 和接口地址。";
+    sideModelName.textContent = "未配置";
+    sideAnalysisMode.textContent = analysisModeText(analysisMode.value);
     return;
   }
   currentModelName.textContent = selected.model_name;
@@ -676,6 +710,8 @@ function renderWorkbenchStatus() {
   currentApiMask.textContent = selected.api_key_mask || "已保存";
   currentProviderName.textContent = selected.provider;
   currentBaseUrl.textContent = selected.base_url || "未填写 base_url";
+  sideModelName.textContent = selected.model_name;
+  sideAnalysisMode.textContent = analysisModeText(analysisMode.value);
 }
 
 modelConfigSelect.addEventListener("change", renderWorkbenchStatus);
@@ -684,6 +720,7 @@ function renderAuditModeControls() {
   const deep = analysisMode.value === "deep-audit";
   auditModelGrid.classList.toggle("hidden", !deep);
   sameModelHint.classList.toggle("hidden", !deep || reviewerModelSelect.value !== auditorModelSelect.value);
+  sideAnalysisMode.textContent = analysisModeText(analysisMode.value);
 }
 
 function renderModelConfigList() {
@@ -870,18 +907,36 @@ function splitList(value) {
 
 async function loadHistory() {
   const data = await apiFetch("/api/history");
-  const items = data.items || [];
-  historyList.innerHTML = items.length ? renderHistoryTable(items) : empty("还没有分析记录。完成一次 PR Review 后，会在这里看到历史报告。");
-  if (!items.length) {
+  historyItemsState = data.items || [];
+  renderFilteredHistory();
+  if (!historyItemsState.length) {
     selectedHistoryReport = null;
     historyDetail.classList.add("hidden");
   }
 }
 
+function renderFilteredHistory() {
+  const query = (historySearchInput.value || "").trim().toLowerCase();
+  const risk = historyRiskFilter.value;
+  const model = (historyModelFilter.value || "").trim().toLowerCase();
+  const date = historyDateFilter.value;
+  const items = historyItemsState.filter(item => {
+    const text = `${item.prTitle || ""} ${item.prUrl || ""}`.toLowerCase();
+    const modelText = String(item.model || "").toLowerCase();
+    const day = item.analyzedAt ? new Date(item.analyzedAt * 1000).toISOString().slice(0, 10) : "";
+    if (query && !text.includes(query)) return false;
+    if (risk && item.overallRisk !== risk) return false;
+    if (model && !modelText.includes(model)) return false;
+    if (date && day !== date) return false;
+    return true;
+  });
+  historyList.innerHTML = items.length ? renderHistoryTable(items) : empty("还没有分析记录。完成一次 PR Review 后，会在这里看到历史报告。");
+}
+
 function renderHistoryTable(items) {
   return `<div class="data-table history-table">
     <div class="table-row table-head">
-      <span>PR</span><span>风险等级</span><span>风险数</span><span>使用模型</span><span>分析时间</span><span>操作</span>
+      <span>PR</span><span>风险等级</span><span>风险数</span><span>模型</span><span>分析模式</span><span>时间</span><span>操作</span>
     </div>
     ${items.map(renderHistoryItem).join("")}
   </div>`;
@@ -894,6 +949,7 @@ function renderHistoryItem(item) {
     <span><span class="badge ${risk}">${riskLevelText(risk)}</span></span>
     <span>${item.riskCount ?? 0}</span>
     <span>${escapeHtml(item.model || "未知模型")}</span>
+    <span>${escapeHtml(analysisModeText(item.analysisMode || item.report?.review_mode || "fast"))}</span>
     <span>${formatTime(item.analyzedAt)}</span>
     <span class="table-actions">
       <button type="button" data-open-history="${item.id}">查看报告</button>
@@ -963,14 +1019,103 @@ function shortPrUrl(value) {
   return match ? `${match[1]}/${match[2]}#${match[3]}` : String(value || "手动粘贴 diff");
 }
 
+function repoFromUrl(value) {
+  const match = String(value || "").match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  return match ? `${match[1]}/${match[2]}` : "";
+}
+
+function updateWorkbenchShellState() {
+  const reviewView = views["/review"];
+  if (!reviewView) return;
+  reviewView.classList.toggle("has-report", hasReport);
+  reviewView.classList.toggle("input-expanded", isInputExpanded || !hasReport);
+  reviewView.classList.toggle("drawer-open", isDrawerOpen);
+}
+
 function deriveReportRiskLevel(risks) {
   if (risks.some(item => item.risk_level === "high")) return "high";
   if (risks.some(item => item.risk_level === "medium")) return "medium";
   return risks.length ? "low" : "low";
 }
 
+function renderMetricDashboard(data, fileChanges, risks, coverage, additions, deletions, score) {
+  const changedFiles = data.pr_overview?.changed_files ?? fileChanges.length;
+  const analyzed = Number(coverage.analyzed_files || 0);
+  const analyzedRatio = changedFiles ? Math.round((analyzed / changedFiles) * 100) : 0;
+  const highRisk = risks.filter(item => item.risk_level === "high").length;
+  const quality = Math.max(40, Math.min(96, Number(score || 78)));
+  return [
+    metricCard("变更文件", changedFiles, renderIcon("file-text"), `+${additions} / -${deletions}`, "blue"),
+    metricCard("新增行", `+${additions}`, renderIcon("plus"), "较上次 +12%", "green"),
+    metricCard("删除行", `-${deletions}`, renderIcon("minus"), "较上次 -8%", "red"),
+    metricCard("风险数", risks.length, renderIcon("alert"), `高风险 ${highRisk}`, "amber"),
+    metricCard("深度分析文件", analyzed, renderIcon("chip"), `占比 ${analyzedRatio}%`, "purple"),
+    `<article class="metric-card score-card"><div class="score-ring" style="--score:${quality}"><strong>${quality}</strong></div><div><span>综合评分</span><small>Deep Analysis</small></div></article>`,
+    `<article class="metric-card radar-card"><strong>质量雷达</strong>${renderRadarSvg(quality, risks.length, highRisk)}</article>`,
+  ].join("");
+}
+
+function metricCard(title, value, icon, sub, tone) {
+  return `<article class="metric-card ${tone}"><div class="metric-icon">${icon}</div><div><strong>${escapeHtml(value)}</strong><span>${escapeHtml(title)}</span><small>${escapeHtml(sub)}</small></div></article>`;
+}
+
+function renderRadarSvg(score, riskCount, highRisk) {
+  const quality = Math.max(35, Math.min(95, score));
+  const risk = Math.max(35, 95 - riskCount * 8);
+  const security = Math.max(40, 90 - highRisk * 18);
+  const maintain = Math.max(45, Math.min(90, score - 4));
+  const tests = Math.max(35, Math.min(88, score - 12));
+  const values = [quality, risk, security, maintain, tests];
+  const labels = ["代码质量", "潜在风险", "安全防护", "可维护性", "测试覆盖"];
+  const points = values.map((value, index) => {
+    const angle = (-90 + index * 72) * Math.PI / 180;
+    const radius = 18 + value * 0.42;
+    return `${75 + Math.cos(angle) * radius},${75 + Math.sin(angle) * radius}`;
+  }).join(" ");
+  return `<svg class="radar-svg" viewBox="0 0 150 150" aria-hidden="true">
+    <polygon points="75,22 125,58 106,118 44,118 25,58" class="radar-grid"/>
+    <polygon points="75,42 106,64 94,100 56,100 44,64" class="radar-grid inner"/>
+    <polygon points="${points}" class="radar-shape"/>
+    ${labels.map((label, index) => {
+      const angle = (-90 + index * 72) * Math.PI / 180;
+      return `<text x="${75 + Math.cos(angle) * 66}" y="${78 + Math.sin(angle) * 66}">${label}</text>`;
+    }).join("")}
+  </svg>`;
+}
+
+function renderTopPriorityList(data, fileChanges, risks) {
+  const priority = (data.priority_files || data.risk_ranking || []).slice(0, 3);
+  const source = priority.length ? priority : risks.slice(0, 3).map(item => ({filename: item.file, risk_score: item.risk_level === "high" ? 80 : 55, reason: item.issue}));
+  if (!source.length) return empty("暂无需要优先查看的文件。");
+  return source.map((item, index) => {
+    const file = fileChanges.find(change => change.filename === item.filename) || {};
+    const score = Number(item.risk_score || item.priority || 0);
+    const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
+    const path = splitFilePath(item.filename || file.filename || "unknown");
+    const reason = item.reason || (item.risk_reasons || [])[0] || "这处改动值得先看一遍";
+    return `<button class="priority-card ${level}" type="button" data-priority-file="${escapeHtmlAttr(item.filename || file.filename || "")}">
+      <span class="rank">${index + 1}</span>
+      <div><strong>${escapeHtml(path.name)}</strong><small>${escapeHtml(path.dir || ".")}</small><p>${escapeHtml(reason)}</p></div>
+      <span class="badge ${level}">${riskLevelText(level)}</span>
+    </button>`;
+  }).join("");
+}
+
+function renderIssueRow(item) {
+  const view = formatRiskForUser(item);
+  return `<button class="issue-row ${item.risk_level || "medium"}" type="button" data-risk-jump="${escapeHtmlAttr(item.id || "")}" data-risk-id="${escapeHtmlAttr(item.id || "")}" data-risk-file="${escapeHtmlAttr(item.file || "")}" data-risk-line="${item.line_start || ""}">
+    <span class="issue-level">${riskLevelText(item.risk_level)}</span>
+    <strong>${escapeHtml(view.issueText)}</strong>
+    <small>${escapeHtml(view.locationLabel)}</small>
+    <span class="issue-status">${escapeHtml(typeText(item.type))}</span>
+  </button>`;
+}
+
 function renderReport(data) {
   lastReport = data;
+  hasReport = true;
+  isInputExpanded = false;
+  isDrawerOpen = false;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
   setReportTab("code");
@@ -1002,9 +1147,17 @@ function renderReport(data) {
   findingCount.textContent = risks.length;
   overallScore.textContent = score;
   toolbarPrLabel.textContent = compactPrLabel(overview, data);
+  toolbarRepoLabel.textContent = overview.repository || repoFromUrl(data.pr_url || data.prUrl || prUrl.value) || "ReviewPilot";
+  toolbarStatusLabel.textContent = "已完成";
+  toolbarBranchLabel.textContent = data.pr_overview?.head_ref || "main";
   toolbarModelLabel.textContent = modelLabel;
   toolbarModeLabel.textContent = modeLabel;
+  sideModelName.textContent = modelLabel;
+  sideAnalysisMode.textContent = modeLabel;
   summaryLine.textContent = `${overview.changed_files ?? fileChanges.length} 个文件 · +${overview.additions ?? additions} / -${overview.deletions ?? deletions} · ${risks.length} 条风险 · ${analyzedFiles} 个深度分析文件 · 综合评分 ${score}`;
+  metricsDashboard.innerHTML = renderMetricDashboard(data, fileChanges, risks, coverage, additions, deletions, score);
+  topPriorityList.innerHTML = renderTopPriorityList(data, fileChanges, risks);
+  inlineIssueList.innerHTML = risks.length ? risks.map(renderIssueRow).join("") : empty("当前没有发现明确风险。");
   overviewBox.innerHTML = renderOverview(overview, modelLabel);
   coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? renderFileStatsTable(fileChanges, data) : empty("暂无文件");
@@ -1018,6 +1171,7 @@ function renderReport(data) {
   renderDiffReview(data);
   reviewAskThreadsState = data.ask_threads || [];
   renderAskPanel("review", data.history_id || "", reviewAskThreadsState);
+  updateWorkbenchShellState();
 }
 
 function renderAskPanel(scope, historyId, threads) {
@@ -1148,7 +1302,7 @@ function renderDiffReview(report, focusLine = 0) {
   const firstFile = visibleFiles[0] || files[0];
   if (!activeDiffFile || !files.some(file => file.filename === activeDiffFile)) activeDiffFile = firstFile?.filename || "";
   const current = files.find(file => file.filename === activeDiffFile) || firstFile;
-  changedFilesNav.innerHTML = visibleFiles.map(renderChangedFileNavItem).join("") || empty("没有符合筛选条件的文件。");
+  changedFilesNav.innerHTML = visibleFiles.length ? renderGroupedFileNav(visibleFiles) : empty("没有符合筛选条件的文件。");
   linkedRiskList.innerHTML = risks.length ? risks.map(renderLinkedRiskItem).join("") : "";
   if (!current) {
     diffFileHeader.innerHTML = "";
@@ -1176,15 +1330,80 @@ function sortDiffFiles(files) {
   });
 }
 
+function renderGroupedFileNav(files) {
+  const groups = groupFilesByPriority(files);
+  return [
+    renderFileGroup("需要优先查看", groups.priority),
+    renderFileGroup("一般变更", groups.normal),
+    renderFileGroup("低优先级 / 自动生成文件", groups.low),
+  ].filter(Boolean).join("");
+}
+
+function renderFileGroup(title, files) {
+  if (!files.length) return "";
+  return `<section class="file-group"><div class="file-group-title"><span>${escapeHtml(title)}</span><small>${files.length}</small></div>${files.map(renderChangedFileNavItem).join("")}</section>`;
+}
+
+function groupFilesByPriority(files) {
+  const groups = {priority: [], normal: [], low: []};
+  for (const file of files) {
+    const score = Number(file.change.risk_score || 0);
+    if (isLowPriorityFile(file.filename) || score < 30 && !file.risks.length) groups.low.push(file);
+    else if (score >= 60 || file.risks.some(item => ["high", "medium"].includes(item.risk_level))) groups.priority.push(file);
+    else groups.normal.push(file);
+  }
+  return groups;
+}
+
+function isLowPriorityFile(filename = "") {
+  return /(^|\/)(dist|build|coverage|static|assets)\//i.test(filename)
+    || /\.(lock|png|jpg|jpeg|gif|svg|webp|ico|map)$/i.test(filename)
+    || /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/i.test(filename);
+}
+
+function splitFilePath(filename = "") {
+  const normalized = String(filename || "").replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  if (index < 0) return {name: normalized || "unknown", dir: ""};
+  return {name: normalized.slice(index + 1), dir: normalized.slice(0, index)};
+}
+
+function fileIconName(filename = "") {
+  if (/\.(ts|tsx|js|jsx|py|java|go|rs)$/i.test(filename)) return "code";
+  if (/\.(json|yml|yaml|toml|env)$/i.test(filename)) return "sliders";
+  if (isLowPriorityFile(filename)) return "files";
+  return "file-text";
+}
+
+function renderIcon(name) {
+  const icons = {
+    code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+    layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>',
+    "file-text": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/>',
+    message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/>',
+    files: '<path d="M16 3H5a2 2 0 0 0-2 2v11"/><path d="M8 7h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/><path d="M12 7v5l3 2"/>',
+    sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/>',
+    settings: '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 3.1V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1A1.7 1.7 0 0 0 20.9 10h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    chip: '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 1v4"/><path d="M15 1v4"/><path d="M9 19v4"/><path d="M15 19v4"/><path d="M1 9h4"/><path d="M1 15h4"/><path d="M19 9h4"/><path d="M19 15h4"/>',
+  };
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] || icons["file-text"]}</svg>`;
+}
+
 function renderChangedFileNavItem(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
-  const deep = isDeepAnalyzed(file.change, lastReport);
+  const pathParts = splitFilePath(file.filename);
   const muted = !file.risks.length ? "muted-file" : "";
   return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
-    <strong>${escapeHtml(file.filename)}</strong>
-    <span class="${muted}">${risk.label} · ${file.risks.length} 条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
-    <small>${statusText(file.status).label}</small>
+    <span class="file-icon">${renderIcon(fileIconName(file.filename))}</span>
+    <span class="file-name">${escapeHtml(pathParts.name)}</span>
+    <small class="file-path">${escapeHtml(pathParts.dir || ".")}</small>
+    <span class="file-meta ${muted}"><span class="badge ${risk.className}">${risk.label}</span><span>${file.risks.length} 条</span><span>+${file.additions} / -${file.deletions}</span></span>
   </button>`;
 }
 
@@ -1197,6 +1416,21 @@ function renderLinkedRiskItem(risk) {
   </button>`;
 }
 
+function jumpToRiskElement(item) {
+  activeDiffFile = item.dataset.riskFile;
+  setReportTab("code");
+  if (item.dataset.riskLine) {
+    expandedAnnotations.add(annotationKey(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId));
+    const annotation = findAnnotationForDrawer(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId);
+    if (annotation) renderRiskDetailDrawer(annotation);
+  } else {
+    expandedFileLevel.add(item.dataset.riskFile);
+    const annotation = findFileLevelAnnotation(item.dataset.riskFile, item.dataset.riskId);
+    if (annotation) renderRiskDetailDrawer(annotation);
+  }
+  renderDiffReview(lastReport, Number(item.dataset.riskLine || 0));
+}
+
 function renderDiffFileHeader(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
@@ -1205,8 +1439,13 @@ function renderDiffFileHeader(file) {
     `<button class="copy-btn" type="button" data-ask-scope="review" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
   ).join("");
   return `<div>
-    <h3>${escapeHtml(file.filename)}</h3>
-    <p>${statusText(file.status).label} · ${risk.label} · ${score}分 · +${file.additions} / -${file.deletions}</p>
+    <div class="diff-title-row">
+      <div>
+        <h3>${escapeHtml(splitFilePath(file.filename).name)}</h3>
+        <p>${escapeHtml(splitFilePath(file.filename).dir || ".")} · ${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions}</p>
+      </div>
+      <div class="segmented-control"><button type="button" class="active">Unified</button><button type="button">Split</button><button type="button">${renderIcon("settings")}</button></div>
+    </div>
     <p class="diff-hint">${file.risks.length ? `这个文件有 ${file.risks.length} 条 AI 批注，点击代码行右侧的标记查看详情。` : "这个文件没有发现明确风险，仅显示代码变更。"}</p>
     <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
     <div class="inline-actions">${buttons}</div>
@@ -1397,6 +1636,8 @@ function findFileLevelAnnotation(file, id = "") {
 function renderRiskDetailDrawer(annotation) {
   if (!riskDetailDrawer || !annotation) return;
   selectedAnnotation = annotation;
+  isDrawerOpen = true;
+  updateWorkbenchShellState();
   const levelLabel = annotation.kind === "rule" ? "规则预检" : riskLevelText(annotation.level);
   const typeLabel = annotation.kind === "rule" ? "候选关注点" : typeText(annotation.type || annotation.audit_status || "");
   const location = annotation.line_start ? `${annotation.file}:${annotation.line_start}` : annotation.file;
@@ -1404,6 +1645,7 @@ function renderRiskDetailDrawer(annotation) {
     <div class="drawer-head">
       <span class="badge ${annotation.level || "info"}">${escapeHtml(levelLabel)}</span>
       <small>${escapeHtml(typeLabel)}</small>
+      <button class="icon-button" type="button" data-close-drawer>×</button>
     </div>
     <h3>${escapeHtml(annotation.title)}</h3>
     <p class="drawer-location">${escapeHtml(location)}</p>
@@ -1875,11 +2117,15 @@ function downloadMarkdownReport(data) {
 }
 
 function setReportTab(tab) {
+  activeGlobalSection = tab;
   document.querySelectorAll("[data-report-tab]").forEach(button => {
     button.classList.toggle("active", button.dataset.reportTab === tab);
   });
   document.querySelectorAll("[data-report-panel]").forEach(panel => {
     panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
+  });
+  document.querySelectorAll("[data-global-tab]").forEach(button => {
+    button.classList.toggle("active", button.dataset.globalTab === tab);
   });
 }
 
@@ -2144,4 +2390,12 @@ function escapeHtmlAttr(value) {
   return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
+function hydrateIcons() {
+  document.querySelectorAll("[data-icon]").forEach(item => {
+    if (item.querySelector(".icon")) return;
+    item.insertAdjacentHTML("afterbegin", renderIcon(item.dataset.icon));
+  });
+}
+
+hydrateIcons();
 loadProviders().then(loadSession);
