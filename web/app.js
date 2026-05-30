@@ -149,6 +149,8 @@ let historyAskThreadsState = [];
 let progressTimer = null;
 let activeInputTab = "url";
 let activeDiffFile = "";
+let expandedAnnotations = new Set();
+let expandedFileLevel = new Set();
 
 const providerDefaults = {
   OpenAI: "https://api.openai.com/v1",
@@ -214,6 +216,23 @@ document.addEventListener("click", (event) => {
   if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
   const riskAsk = event.target.closest("[data-risk-ask]");
   if (riskAsk) fillAskQuestion("review", "\u8bf7\u8fdb\u4e00\u6b65\u89e3\u91ca\u8fd9\u4e2a\u98ce\u9669\u4e3a\u4ec0\u4e48\u6210\u7acb\uff0c\u4ee5\u53ca\u5e94\u8be5\u5982\u4f55\u4fee\u6539\uff1f");
+});
+
+document.addEventListener("click", (event) => {
+  const marker = event.target.closest("[data-annotation-key]");
+  if (marker) {
+    const key = marker.dataset.annotationKey;
+    if (expandedAnnotations.has(key)) expandedAnnotations.delete(key);
+    else expandedAnnotations.add(key);
+    renderDiffReview(lastReport);
+  }
+  const fileToggle = event.target.closest("[data-file-level-toggle]");
+  if (fileToggle) {
+    const file = fileToggle.dataset.fileLevelToggle;
+    if (expandedFileLevel.has(file)) expandedFileLevel.delete(file);
+    else expandedFileLevel.add(file);
+    renderDiffReview(lastReport);
+  }
 });
 
 brandBtn.addEventListener("click", () => navigate(currentUser ? "/review" : "/login"));
@@ -397,6 +416,11 @@ linkedRiskList.addEventListener("click", (event) => {
   const item = event.target.closest("[data-risk-jump]");
   if (!item) return;
   activeDiffFile = item.dataset.riskFile;
+  if (item.dataset.riskLine) {
+    expandedAnnotations.add(annotationKey(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId));
+  } else {
+    expandedFileLevel.add(item.dataset.riskFile);
+  }
   renderDiffReview(lastReport, Number(item.dataset.riskLine || 0));
 });
 
@@ -1012,8 +1036,9 @@ function renderDiffReview(report, focusLine = 0) {
   if (!report || !diffViewer) return;
   const fileDiffs = report.file_diffs || [];
   const fileChanges = report.file_changes || [];
-  const risks = report.risks || report.final_result?.final_risks || [];
+  const risks = getReportRisks(report);
   const rules = report.rule_findings || [];
+  const annotationIndex = buildLineAnnotations(report);
   if (!fileDiffs.length) {
     changedFilesNav.innerHTML = empty("当前报告没有可展示的 diff。");
     linkedRiskList.innerHTML = empty("暂无风险定位。");
@@ -1027,6 +1052,8 @@ function renderDiffReview(report, focusLine = 0) {
     change: fileChanges.find(item => item.filename === file.filename) || {},
     risks: risks.filter(item => item.file === file.filename),
     rules: rules.filter(item => item.file === file.filename),
+    annotationsByLine: annotationIndex.byFile[file.filename] || {},
+    fileLevelAnnotations: annotationIndex.fileLevel[file.filename] || [],
   })));
   const visibleFiles = files.filter(file => {
     if (onlyRiskFiles.checked && !file.risks.length) return false;
@@ -1077,7 +1104,7 @@ function renderChangedFileNavItem(file) {
 
 function renderLinkedRiskItem(risk) {
   const view = formatRiskForUser(risk);
-  return `<button class="risk-jump-item" type="button" data-risk-jump="${escapeHtmlAttr(risk.id || "")}" data-risk-file="${escapeHtmlAttr(risk.file || "")}" data-risk-line="${risk.line_start || ""}">
+  return `<button class="risk-jump-item" type="button" data-risk-jump="${escapeHtmlAttr(risk.id || "")}" data-risk-id="${escapeHtmlAttr(risk.id || "")}" data-risk-file="${escapeHtmlAttr(risk.file || "")}" data-risk-line="${risk.line_start || ""}">
     <span class="badge ${risk.risk_level}">${riskLevelText(risk.risk_level)}</span>
     <strong>${escapeHtml(view.issueText)}</strong>
     <small>${escapeHtml(view.locationLabel)} · ${escapeHtml(view.auditText)}</small>
@@ -1094,6 +1121,7 @@ function renderDiffFileHeader(file) {
   return `<div>
     <h3>${escapeHtml(file.filename)}</h3>
     <p>${statusText(file.status).label} · ${risk.label} · ${score}分 · +${file.additions} / -${file.deletions}</p>
+    <p class="diff-hint">${file.risks.length ? `这个文件有 ${file.risks.length} 条 AI 批注，点击代码行右侧的标记查看详情。` : "这个文件没有发现明确风险，仅显示代码变更。"}</p>
     <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
     <div class="inline-actions">${buttons}</div>
     <details class="tech-details"><summary>查看技术细节</summary><p>${escapeHtml(reasons)}</p></details>
@@ -1101,27 +1129,24 @@ function renderDiffFileHeader(file) {
 }
 
 function renderDiffLines(file, showRules, showAudit) {
-  const risksByLine = groupByLine(file.risks);
-  const rulesByLine = groupByLine(file.rules);
-  const fileLevel = [
-    ...file.risks.filter(item => !item.line_start).map(item => renderInlineRiskComment(item, showAudit, true)),
-    ...(showRules ? file.rules.filter(item => !item.line_start).map(item => renderInlineRuleMarker(item, true)) : []),
-  ].join("");
+  const fileLevel = renderFileLevelAnnotations(file, showAudit, showRules);
   return `${fileLevel}<div class="diff-table">${(file.parsed_lines || []).map(line => {
     const newLine = line.new_line_no || "";
     const oldLine = line.old_line_no || "";
-    const lineRisks = risksByLine.get(line.new_line_no) || [];
-    const lineRules = showRules ? (rulesByLine.get(line.new_line_no) || []) : [];
-    const row = `<div class="diff-line diff-${line.type} ${lineRisks.length ? "has-risk" : ""} ${lineRules.length ? "has-rule" : ""}" data-new-line="${line.new_line_no || ""}">
+    const annotations = annotationsForLine(file, line.new_line_no, showRules);
+    const hasRisk = annotations.some(item => item.kind === "risk");
+    const hasRule = annotations.some(item => item.kind === "rule");
+    const row = `<div class="diff-line diff-${line.type} ${hasRisk ? "has-risk" : ""} ${hasRule ? "has-rule" : ""}" data-new-line="${line.new_line_no || ""}">
       <span class="line-no old">${oldLine}</span>
       <span class="line-no new">${newLine}</span>
       <span class="line-mark">${line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}</span>
       <code>${escapeHtml(line.content)}</code>
+      <span class="annotation-cell">${renderAnnotationMarker(file.filename, line.new_line_no, annotations)}</span>
     </div>`;
-    const comments = [
-      ...lineRisks.map(item => renderInlineRiskComment(item, showAudit)),
-      ...lineRules.map(renderInlineRuleMarker),
-    ].join("");
+    const comments = annotations
+      .filter(annotation => expandedAnnotations.has(annotationKey(file.filename, line.new_line_no, annotation.id)))
+      .map(annotation => renderInlineAnnotation(annotation, showAudit))
+      .join("");
     return row + comments;
   }).join("")}</div>`;
 }
@@ -1162,15 +1187,137 @@ function renderInlineRuleMarker(rule, fileLevel = false) {
   </article>`;
 }
 
-function groupByLine(items) {
-  const map = new Map();
-  for (const item of items || []) {
-    const line = Number(item.line_start || item.line_end || 0);
-    if (!line) continue;
-    if (!map.has(line)) map.set(line, []);
-    map.get(line).push(item);
+function buildLineAnnotations(report) {
+  const byFile = {};
+  const fileLevel = {};
+  const risks = getReportRisks(report);
+  const rules = report.rule_findings || [];
+  for (const risk of risks) addAnnotation(byFile, fileLevel, riskToAnnotation(risk));
+  for (const rule of rules) addAnnotation(byFile, fileLevel, ruleToAnnotation(rule));
+  return {byFile, fileLevel};
+}
+
+function getReportRisks(report) {
+  const finalRisks = report?.final_result?.final_risks || [];
+  if (finalRisks.length) return finalRisks;
+  return report?.risks || [];
+}
+
+function addAnnotation(byFile, fileLevel, annotation) {
+  if (!annotation.file) return;
+  if (!annotation.line_start) {
+    if (!fileLevel[annotation.file]) fileLevel[annotation.file] = [];
+    fileLevel[annotation.file].push(annotation);
+    return;
   }
-  return map;
+  if (!byFile[annotation.file]) byFile[annotation.file] = {};
+  const line = String(annotation.line_start);
+  if (!byFile[annotation.file][line]) byFile[annotation.file][line] = [];
+  byFile[annotation.file][line].push(annotation);
+}
+
+function riskToAnnotation(risk) {
+  const view = formatRiskForUser(risk);
+  return {
+    id: risk.id || `risk_${risk.file}_${risk.line_start || "file"}`,
+    kind: "risk",
+    file: risk.file,
+    line_start: risk.line_start,
+    line_end: risk.line_end || risk.line_start,
+    side: risk.side || "new",
+    level: risk.risk_level || "medium",
+    title: view.title,
+    summary: view.issueText,
+    why_it_matters: view.whyItMatters,
+    suggestion: view.suggestionText,
+    evidence: view.evidenceText,
+    confidence: risk.final_confidence ?? risk.confidence,
+    audit_status: risk.audit_status,
+    audit_note: view.auditText,
+    copyable_comment: view.suggestionText,
+  };
+}
+
+function ruleToAnnotation(rule) {
+  const view = formatRuleFindingForUser(rule);
+  return {
+    id: rule.rule_id || `rule_${rule.file}_${rule.line_start || "file"}`,
+    kind: "rule",
+    file: rule.file,
+    line_start: rule.line_start,
+    line_end: rule.line_end || rule.line_start,
+    side: rule.side || "new",
+    level: "info",
+    title: `${view.title} · ${view.statusLabel}`,
+    summary: view.findingText,
+    why_it_matters: view.whyItMatters,
+    suggestion: view.suggestionText,
+    evidence: rule.evidence || "",
+    confidence: rule.confidence,
+    audit_status: rule.status,
+    audit_note: view.aiConclusionText,
+    copyable_comment: view.suggestionText,
+  };
+}
+
+function annotationsForLine(file, lineNo, showRules) {
+  const items = (file.annotationsByLine || {})[String(lineNo)] || [];
+  return showRules ? items : items.filter(item => item.kind !== "rule");
+}
+
+function renderAnnotationMarker(filename, lineNo, annotations) {
+  if (!annotations.length || !lineNo) return "";
+  const riskCount = annotations.filter(item => item.kind === "risk").length;
+  const level = highestAnnotationLevel(annotations);
+  const key = annotationKey(filename, lineNo, annotations[0].id);
+  const expanded = annotations.some(item => expandedAnnotations.has(annotationKey(filename, lineNo, item.id)));
+  const label = riskCount ? `⚠ ${annotations.length}` : `• ${annotations.length}`;
+  const title = annotations.map(item => item.summary).join("\n");
+  return `<button class="annotation-marker ${level} ${expanded ? "active" : ""}" type="button" title="${escapeHtmlAttr(title)}" data-annotation-key="${escapeHtmlAttr(key)}">${label}</button>`;
+}
+
+function renderInlineAnnotation(annotation, showAudit) {
+  return `<article class="inline-comment ${annotation.kind === "rule" ? "rule-comment" : "risk-comment"}">
+    <div class="card-title">
+      <span>${escapeHtml(annotation.title)}</span>
+      <div class="inline-actions">
+        <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(annotation.copyable_comment)}">复制评论</button>
+        <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(annotation.id)}">追问</button>
+      </div>
+    </div>
+    <p><strong>一句话问题：</strong>${escapeHtml(annotation.summary)}</p>
+    <p><strong>为什么值得看：</strong>${escapeHtml(annotation.why_it_matters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(annotation.suggestion)}</p>
+    <p><strong>依据：</strong>${escapeHtml(annotation.evidence || "当前提示没有精确证据文本。")}</p>
+    ${showAudit && annotation.audit_note ? `<p class="audit-note"><strong>审计：</strong>${escapeHtml(annotation.audit_note)}</p>` : ""}
+  </article>`;
+}
+
+function renderFileLevelAnnotations(file, showAudit, showRules) {
+  const items = (file.fileLevelAnnotations || []).filter(item => showRules || item.kind !== "rule");
+  if (!items.length) return "";
+  const open = expandedFileLevel.has(file.filename);
+  return `<section class="file-level-annotations">
+    <button class="file-level-toggle" type="button" data-file-level-toggle="${escapeHtmlAttr(file.filename)}">
+      <span>文件级提示 ${items.length} 条</span>
+      <small>${open ? "收起" : "展开"}</small>
+    </button>
+    ${open ? `<div class="file-level-list">
+      <p class="explain-note">这类提示暂时无法定位到具体代码行，建议结合整个文件改动查看。</p>
+      ${items.map(item => renderInlineAnnotation(item, showAudit)).join("")}
+    </div>` : ""}
+  </section>`;
+}
+
+function annotationKey(file, line, id) {
+  return `${file}:${line || "file"}`;
+}
+
+function highestAnnotationLevel(items) {
+  if (items.some(item => item.level === "high")) return "high";
+  if (items.some(item => item.level === "medium")) return "medium";
+  if (items.some(item => item.level === "low")) return "low";
+  return "info";
 }
 
 function isDeepAnalyzed(file, report) {

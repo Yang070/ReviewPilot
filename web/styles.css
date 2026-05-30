@@ -669,15 +669,17 @@ button:hover {
 
 .diff-review-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 14px;
-  min-height: 640px;
+  height: calc(100vh - 260px);
+  min-height: 620px;
 }
 
 .diff-sidebar {
   display: grid;
   gap: 12px;
   align-content: start;
+  overflow: hidden;
 }
 
 .diff-toolbar,
@@ -698,7 +700,7 @@ button:hover {
 .risk-list-panel .stack {
   display: grid;
   gap: 8px;
-  max-height: 360px;
+  max-height: 300px;
   overflow: auto;
 }
 
@@ -713,6 +715,10 @@ button:hover {
   padding: 10px;
   text-align: left;
   width: 100%;
+}
+
+.file-nav-item {
+  min-height: 72px;
 }
 
 .file-nav-item.active {
@@ -750,6 +756,8 @@ button:hover {
   display: grid;
   gap: 12px;
   align-content: start;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
 }
 
 .diff-viewer {
@@ -757,34 +765,42 @@ button:hover {
   border-radius: 8px;
   overflow: auto;
   background: #fff;
+  min-height: 0;
 }
 
 .diff-table {
-  min-width: 760px;
+  min-width: 860px;
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12px;
 }
 
 .diff-line {
   display: grid;
-  grid-template-columns: 54px 54px 28px minmax(0, 1fr);
+  grid-template-columns: 54px 54px 28px minmax(0, 1fr) 76px;
   min-height: 28px;
   border-bottom: 1px solid #eef2f6;
 }
 
 .diff-line code {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  overflow-wrap: normal;
   padding: 6px 10px;
 }
 
 .line-no,
-.line-mark {
+.line-mark,
+.annotation-cell {
   display: grid;
   place-items: center;
   border-right: 1px solid #e4e7ec;
   color: #667085;
   user-select: none;
+}
+
+.annotation-cell {
+  border-right: 0;
+  border-left: 1px solid #e4e7ec;
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .diff-context {
@@ -821,6 +837,62 @@ button:hover {
   border-bottom: 1px solid var(--line);
   padding: 12px 16px 12px 140px;
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+.annotation-marker {
+  min-height: 22px;
+  height: 22px;
+  min-width: 44px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.annotation-marker.high {
+  border-color: #fecdca;
+  background: #fee4e2;
+  color: var(--red);
+}
+
+.annotation-marker.medium {
+  border-color: #fedf89;
+  background: #fef0c7;
+  color: var(--amber);
+}
+
+.annotation-marker.low {
+  border-color: #abefc6;
+  background: #dcfae6;
+  color: var(--green);
+}
+
+.annotation-marker.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #175cd3;
+}
+
+.annotation-marker.active {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.file-level-annotations {
+  border-bottom: 1px solid var(--line);
+  background: #fbfdff;
+}
+
+.file-level-toggle {
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: #f8fafc;
+  padding: 10px 14px;
+}
+
+.file-level-list .inline-comment {
+  padding-left: 16px;
 }
 
 .inline-comment p {
