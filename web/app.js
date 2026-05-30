@@ -4,6 +4,7 @@ const views = {
   "/review": document.querySelector("#reviewView"),
   "/history": document.querySelector("#historyView"),
   "/settings/models": document.querySelector("#modelsView"),
+  "/settings/rules": document.querySelector("#rulesView"),
 };
 
 const loginForm = document.querySelector("#loginForm");
@@ -26,6 +27,11 @@ const reviewBtn = document.querySelector("#reviewBtn");
 const sampleBtn = document.querySelector("#sampleBtn");
 const modelConfigSelect = document.querySelector("#modelConfigSelect");
 const analysisMode = document.querySelector("#analysisMode");
+const auditModelGrid = document.querySelector("#auditModelGrid");
+const reviewerModelSelect = document.querySelector("#reviewerModelSelect");
+const auditorModelSelect = document.querySelector("#auditorModelSelect");
+const sameModelHint = document.querySelector("#sameModelHint");
+const enabledRuleCount = document.querySelector("#enabledRuleCount");
 const modelMissingHint = document.querySelector("#modelMissingHint");
 const currentModelName = document.querySelector("#currentModelName");
 const currentModelMeta = document.querySelector("#currentModelMeta");
@@ -66,6 +72,9 @@ const limitationsBox = document.querySelector("#limitations");
 const copySummaryBtn = document.querySelector("#copySummaryBtn");
 const exportMarkdownBtn = document.querySelector("#exportMarkdownBtn");
 const reportTabs = document.querySelector("#reportTabs");
+const reviewerResultBox = document.querySelector("#reviewerResultBox");
+const auditorResultBox = document.querySelector("#auditorResultBox");
+const finalResultBox = document.querySelector("#finalResultBox");
 
 const modelForm = document.querySelector("#modelForm");
 const modelFormTitle = document.querySelector("#modelFormTitle");
@@ -86,10 +95,30 @@ const historyDetailSummary = document.querySelector("#historyDetailSummary");
 const historyMarkdownPreview = document.querySelector("#historyMarkdownPreview");
 const historyDownloadBtn = document.querySelector("#historyDownloadBtn");
 const historyCloseBtn = document.querySelector("#historyCloseBtn");
+const ruleForm = document.querySelector("#ruleForm");
+const ruleFormTitle = document.querySelector("#ruleFormTitle");
+const editingRuleId = document.querySelector("#editingRuleId");
+const ruleName = document.querySelector("#ruleName");
+const ruleDescription = document.querySelector("#ruleDescription");
+const ruleCategory = document.querySelector("#ruleCategory");
+const ruleLanguage = document.querySelector("#ruleLanguage");
+const ruleFilePatterns = document.querySelector("#ruleFilePatterns");
+const ruleIncludeKeywords = document.querySelector("#ruleIncludeKeywords");
+const ruleExcludeKeywords = document.querySelector("#ruleExcludeKeywords");
+const ruleSeverity = document.querySelector("#ruleSeverity");
+const ruleMessage = document.querySelector("#ruleMessage");
+const ruleSuggestion = document.querySelector("#ruleSuggestion");
+const ruleEnabled = document.querySelector("#ruleEnabled");
+const resetRuleFormBtn = document.querySelector("#resetRuleFormBtn");
+const loadTemplatesBtn = document.querySelector("#loadTemplatesBtn");
+const ruleTemplateList = document.querySelector("#ruleTemplateList");
+const ruleList = document.querySelector("#ruleList");
 
 let currentUser = null;
 let modelConfigs = [];
 let providers = [];
+let reviewRules = [];
+let ruleTemplates = [];
 let lastSummary = "";
 let lastReport = null;
 let selectedHistoryReport = null;
@@ -177,6 +206,10 @@ document.querySelectorAll("[data-input-tab]").forEach(button => {
   button.addEventListener("click", () => setInputTab(button.dataset.inputTab));
 });
 
+analysisMode.addEventListener("change", renderAuditModeControls);
+reviewerModelSelect.addEventListener("change", renderAuditModeControls);
+auditorModelSelect.addEventListener("change", renderAuditModeControls);
+
 patchFile.addEventListener("change", async () => {
   const file = patchFile.files[0];
   if (!file) return;
@@ -202,7 +235,8 @@ reviewBtn.addEventListener("click", async () => {
   try {
     const payload = await buildReviewPayload();
     updateProgress(42, "正在执行规则检测和文件风险排序...");
-    const data = await apiFetch("/api/review", {method: "POST", body: JSON.stringify(payload)});
+    const endpoint = analysisMode.value === "deep-audit" ? "/api/review/deep-audit" : "/api/review";
+    const data = await apiFetch(endpoint, {method: "POST", body: JSON.stringify(payload)});
     updateProgress(90, "正在整理评审报告和保存历史记录...");
     renderReport(data);
     finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
@@ -298,6 +332,62 @@ reportTabs.addEventListener("click", (event) => {
   setReportTab(button.dataset.reportTab);
 });
 
+ruleForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const id = editingRuleId.value;
+  try {
+    const payload = readRuleForm();
+    if (id) {
+      await apiFetch(`/api/rules/${id}`, {method: "PATCH", body: JSON.stringify(payload)});
+    } else {
+      await apiFetch("/api/rules", {method: "POST", body: JSON.stringify(payload)});
+    }
+    resetRuleForm();
+    await loadRules();
+    showNotice("保存成功", "规则已更新。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+resetRuleFormBtn.addEventListener("click", resetRuleForm);
+loadTemplatesBtn.addEventListener("click", async () => {
+  ruleTemplateList.classList.toggle("hidden");
+  if (!ruleTemplateList.classList.contains("hidden")) await loadRuleTemplates();
+});
+
+ruleList.addEventListener("click", async (event) => {
+  const editId = event.target.closest("[data-edit-rule]")?.dataset.editRule;
+  const toggleId = event.target.closest("[data-toggle-rule]")?.dataset.toggleRule;
+  const deleteId = event.target.closest("[data-delete-rule]")?.dataset.deleteRule;
+  try {
+    if (editId) editRule(editId);
+    if (toggleId) {
+      const rule = reviewRules.find(item => item.id === toggleId);
+      await apiFetch(`/api/rules/${toggleId}`, {method: "PATCH", body: JSON.stringify({enabled: !rule.enabled})});
+      await loadRules();
+    }
+    if (deleteId && confirm("确定删除这条规则吗？")) {
+      await apiFetch(`/api/rules/${deleteId}`, {method: "DELETE"});
+      await loadRules();
+    }
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+ruleTemplateList.addEventListener("click", async (event) => {
+  const templateId = event.target.closest("[data-copy-template]")?.dataset.copyTemplate;
+  if (!templateId) return;
+  try {
+    await apiFetch("/api/rules/copy-template", {method: "POST", body: JSON.stringify({template_id: templateId})});
+    await loadRules();
+    showNotice("复制成功", "规则模板已复制到当前规则列表。");
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
 window.addEventListener("popstate", () => route());
 
 async function authRequest(path, payload) {
@@ -329,6 +419,7 @@ async function loadSession() {
     renderAuthState();
     await loadProviders();
     await loadModelConfigs();
+    await loadRules();
   } catch {
     localStorage.removeItem("reviewpilot_token");
     currentUser = null;
@@ -383,8 +474,12 @@ async function route() {
     await loadProviders();
     await loadModelConfigs();
   }
+  if (path === "/settings/rules") await loadRules();
   if (path === "/history") await loadHistory();
-  if (path === "/review") await loadModelConfigs();
+  if (path === "/review") {
+    await loadModelConfigs();
+    await loadRules();
+  }
 }
 
 function showView(path) {
@@ -404,6 +499,16 @@ function setInputTab(tab) {
 async function buildReviewPayload() {
   let diff = diffInput.value;
   if (activeInputTab === "file" && patchFile.files[0]) diff = await patchFile.files[0].text();
+  if (analysisMode.value === "deep-audit") {
+    return {
+      pr_url: activeInputTab === "url" ? prUrl.value.trim() : "",
+      diff_text: activeInputTab === "url" ? "" : diff,
+      reviewer_model_config_id: reviewerModelSelect.value,
+      auditor_model_config_id: auditorModelSelect.value,
+      rule_set_id: "default",
+      analysis_mode: "deep",
+    };
+  }
   return {
     prUrl: activeInputTab === "url" ? prUrl.value.trim() : "",
     diff: activeInputTab === "url" ? "" : diff,
@@ -418,9 +523,16 @@ function renderModelSelect() {
   modelConfigSelect.innerHTML = modelConfigs.length
     ? modelConfigs.map(item => `<option value="${item.id}">${escapeHtml(item.display_name)}${item.is_default ? "（默认）" : ""}</option>`).join("")
     : `<option value="">请先添加模型配置</option>`;
+  reviewerModelSelect.innerHTML = modelConfigSelect.innerHTML;
+  auditorModelSelect.innerHTML = modelConfigSelect.innerHTML;
   const defaultConfig = modelConfigs.find(item => item.is_default);
-  if (defaultConfig) modelConfigSelect.value = defaultConfig.id;
+  if (defaultConfig) {
+    modelConfigSelect.value = defaultConfig.id;
+    reviewerModelSelect.value = defaultConfig.id;
+    auditorModelSelect.value = defaultConfig.id;
+  }
   renderWorkbenchStatus();
+  renderAuditModeControls();
 }
 
 function renderWorkbenchStatus() {
@@ -443,6 +555,12 @@ function renderWorkbenchStatus() {
 }
 
 modelConfigSelect.addEventListener("change", renderWorkbenchStatus);
+
+function renderAuditModeControls() {
+  const deep = analysisMode.value === "deep-audit";
+  auditModelGrid.classList.toggle("hidden", !deep);
+  sameModelHint.classList.toggle("hidden", !deep || reviewerModelSelect.value !== auditorModelSelect.value);
+}
 
 function renderModelConfigList() {
   if (!modelConfigList) return;
@@ -530,6 +648,100 @@ function readQuickModelForm(isDefault) {
 function clearQuickModelForm() {
   quickApiKey.value = "";
   quickModelName.value = "qwen-plus";
+}
+
+async function loadRules() {
+  if (!currentUser) return;
+  const data = await apiFetch("/api/rules");
+  reviewRules = data.rules || [];
+  const enabled = reviewRules.filter(rule => rule.enabled).length;
+  enabledRuleCount.textContent = `已启用 ${enabled} 条规则`;
+  renderRuleList();
+}
+
+async function loadRuleTemplates() {
+  const data = await rawFetch("/api/rule-templates");
+  ruleTemplates = data.templates || [];
+  ruleTemplateList.innerHTML = ruleTemplates.map(template => `<article class="card compact-card">
+    <div class="card-title">
+      <span>${escapeHtml(template.name)}</span>
+      <button type="button" data-copy-template="${escapeHtmlAttr(template.template_id)}">复制</button>
+    </div>
+    <p>${escapeHtml(template.description)}</p>
+  </article>`).join("");
+}
+
+function renderRuleList() {
+  if (!ruleList) return;
+  ruleList.innerHTML = reviewRules.length ? reviewRules.map(rule => `<article class="card">
+    <div class="card-title">
+      <span>${escapeHtml(rule.name)}</span>
+      <span class="badge ${rule.enabled ? "low" : "medium"}">${rule.enabled ? "启用" : "禁用"}</span>
+    </div>
+    <p>${escapeHtml(rule.description || "暂无说明")}</p>
+    <p><strong>分类：</strong>${escapeHtml(rule.category)}；<strong>语言：</strong>${escapeHtml(rule.language)}；<strong>等级：</strong>${escapeHtml(rule.severity)}</p>
+    <p><strong>触发：</strong>${escapeHtml((rule.include_keywords || []).join("、") || "无")}</p>
+    <p><strong>排除：</strong>${escapeHtml((rule.exclude_keywords || []).join("、") || "无")}</p>
+    <div class="inline-actions">
+      <button type="button" data-toggle-rule="${rule.id}">${rule.enabled ? "禁用" : "启用"}</button>
+      <button type="button" data-edit-rule="${rule.id}">编辑</button>
+      <button type="button" data-delete-rule="${rule.id}">删除</button>
+    </div>
+  </article>`).join("") : empty("暂无规则。可以从模板复制或手动新增。");
+}
+
+function editRule(id) {
+  const rule = reviewRules.find(item => item.id === id);
+  if (!rule) return;
+  editingRuleId.value = rule.id;
+  ruleFormTitle.textContent = "编辑规则";
+  ruleName.value = rule.name || "";
+  ruleDescription.value = rule.description || "";
+  ruleCategory.value = rule.category || "common";
+  ruleLanguage.value = rule.language || "common";
+  ruleFilePatterns.value = (rule.file_patterns || []).join(", ");
+  ruleIncludeKeywords.value = (rule.include_keywords || []).join(", ");
+  ruleExcludeKeywords.value = (rule.exclude_keywords || []).join(", ");
+  ruleSeverity.value = rule.severity || "medium";
+  ruleMessage.value = rule.message || "";
+  ruleSuggestion.value = rule.suggestion || "";
+  ruleEnabled.checked = Boolean(rule.enabled);
+}
+
+function resetRuleForm() {
+  editingRuleId.value = "";
+  ruleFormTitle.textContent = "新增规则";
+  ruleName.value = "";
+  ruleDescription.value = "";
+  ruleCategory.value = "common";
+  ruleLanguage.value = "common";
+  ruleFilePatterns.value = "*";
+  ruleIncludeKeywords.value = "";
+  ruleExcludeKeywords.value = "";
+  ruleSeverity.value = "medium";
+  ruleMessage.value = "";
+  ruleSuggestion.value = "";
+  ruleEnabled.checked = true;
+}
+
+function readRuleForm() {
+  return {
+    name: ruleName.value,
+    description: ruleDescription.value,
+    category: ruleCategory.value,
+    language: ruleLanguage.value,
+    file_patterns: splitList(ruleFilePatterns.value),
+    include_keywords: splitList(ruleIncludeKeywords.value),
+    exclude_keywords: splitList(ruleExcludeKeywords.value),
+    severity: ruleSeverity.value,
+    message: ruleMessage.value,
+    suggestion: ruleSuggestion.value,
+    enabled: ruleEnabled.checked,
+  };
+}
+
+function splitList(value) {
+  return value.split(",").map(item => item.trim()).filter(Boolean);
 }
 
 async function loadHistory() {
@@ -620,6 +832,7 @@ function renderReport(data) {
   risksBox.innerHTML = risks.length ? risks.map(renderRisk).join("") : empty("未发现有明确证据的风险");
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
   limitationsBox.innerHTML = (data.limitations || []).length ? data.limitations.map(renderLimitation).join("") : empty("暂无额外限制说明");
+  renderAuditReport(data);
 }
 
 function renderOverview(overview, model) {
@@ -692,13 +905,68 @@ function renderPriorityFile(file) {
 function renderRuleFinding(item) {
   return `<article class="card">
     <div class="card-title">
-      <span>${escapeHtml(item.file || "全局规则")}</span>
-      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(typeText(item.type))}</span>
+      <span>${escapeHtml(item.rule_name || "规则预检")}</span>
+      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(item.status || "待 AI 判断")}</span>
     </div>
-    <p><strong>规则证据：</strong>${escapeHtml(item.evidence || "")}</p>
-    <p><strong>提示：</strong>${escapeHtml(item.issue || "")}</p>
-    <p><strong>原因：</strong>${escapeHtml(item.reason || "")}</p>
+    <p><strong>影响文件：</strong>${escapeHtml(item.file || "全局")}</p>
+    <p><strong>命中原因：</strong>${escapeHtml(item.reason || item.issue || "")}</p>
+    <p><strong>风险等级：</strong>${escapeHtml(riskLevelText(item.risk_level || "medium"))}</p>
+    <p><strong>证据：</strong>${escapeHtml(item.evidence || "")}</p>
     <p><strong>建议：</strong>${escapeHtml(item.suggestion || "")}</p>
+  </article>`;
+}
+
+function renderAuditReport(data) {
+  if (data.review_mode !== "deep_audit") {
+    reviewerResultBox.innerHTML = empty("当前为快速分析，没有初审模型原始结果。");
+    auditorResultBox.innerHTML = empty("当前为快速分析，没有 AI 审计结果。");
+    finalResultBox.innerHTML = empty("当前为快速分析，没有融合结果。");
+    return;
+  }
+  const reviewerRisks = data.reviewer_result?.risks || [];
+  const auditor = data.auditor_result || {};
+  const finalRisks = data.final_result?.final_risks || [];
+  const dismissed = data.final_result?.dismissed_risks || [];
+  reviewerResultBox.innerHTML = reviewerRisks.length ? reviewerRisks.map(renderReviewerRisk).join("") : empty("初审模型未输出风险。");
+  auditorResultBox.innerHTML = renderAuditorResult(auditor);
+  finalResultBox.innerHTML = [
+    finalRisks.length ? finalRisks.map(renderFinalRisk).join("") : empty("融合后未发现核心风险。"),
+    dismissed.length ? `<h3>被移除的误检候选</h3>${dismissed.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.issue)}</p><p>${escapeHtml(item.dismiss_reason)}</p></article>`).join("")}` : "",
+  ].join("");
+}
+
+function renderReviewerRisk(item) {
+  return `<article class="card">
+    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${item.risk_level}</span></div>
+    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
+    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
+    <p><strong>初审置信度：</strong>${item.reviewer_confidence ?? item.confidence}%</p>
+  </article>`;
+}
+
+function renderAuditorResult(auditor) {
+  const falsePositives = auditor.false_positive_candidates || [];
+  const missed = auditor.missed_risk_candidates || [];
+  const adjustments = auditor.confidence_adjustments || [];
+  return `<article class="card"><p>${escapeHtml(auditor.audit_summary || "审计模型没有返回总结。")}</p></article>
+    <h3>可能误检项</h3>${falsePositives.length ? falsePositives.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.reason)}</p><p>动作：${escapeHtml(item.audit_action || "")}</p></article>`).join("") : empty("暂无可能误检项")}
+    <h3>可能漏检项</h3>${missed.length ? missed.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.issue)}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无可能漏检项")}
+    <h3>置信度调整</h3>${adjustments.length ? adjustments.map(item => `<article class="card compact-card"><p>${escapeHtml(item.risk_id)}：${item.old_confidence} -> ${item.new_confidence}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无置信度调整")}`;
+}
+
+function renderFinalRisk(item) {
+  const note = item.audit_status === "downgraded"
+    ? "已被审计模型降级为待人工确认"
+    : item.audit_status === "added_by_auditor"
+      ? "审计模型补充的可能漏检项"
+      : "审计后保留";
+  return `<article class="card">
+    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${escapeHtml(typeText(item.type))}</span></div>
+    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
+    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
+    <p><strong>初审模型置信度：</strong>${item.reviewer_confidence}%；<strong>审计模型置信度：</strong>${item.auditor_confidence}%；<strong>最终置信度：</strong>${item.final_confidence}%</p>
+    <p><strong>审计状态：</strong>${escapeHtml(item.audit_status)}；${note}</p>
+    <p><strong>审计说明：</strong>${escapeHtml(item.audit_note || "")}</p>
   </article>`;
 }
 
@@ -770,7 +1038,7 @@ function buildMarkdownReport(data) {
     "## Changed Modules",
     modules.length ? modules.map(item => `- ${item.name}: ${item.summary}`).join("\n") : "- 暂无模块总结",
     "",
-    "## Rule Findings",
+    "## 规则预检",
     ruleFindings.length ? ruleFindings.map(item => `- [${item.risk_level}] ${item.file}: ${item.issue}`).join("\n") : "- 规则层未发现需要提示的问题",
     "",
     "## Risks",
@@ -926,6 +1194,11 @@ function riskScoreText(score) {
   if (score >= 70) return {label: "高风险", className: "high"};
   if (score >= 40) return {label: "中风险", className: "medium"};
   return {label: "低风险", className: "low"};
+}
+
+function riskLevelText(level) {
+  const map = {low: "低风险", medium: "中风险", high: "高风险"};
+  return map[level] || "中风险";
 }
 
 function categoryText(category) {

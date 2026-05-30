@@ -1,4 +1,5 @@
 from pathlib import Path
+from .rule_checker import default_rules, rule_from_template, RULE_TEMPLATES
 import base64
 import hashlib
 import hmac
@@ -46,6 +47,7 @@ class UserStore:
             "passwordHash": b64(hash_password(password, salt)),
             "modelConfigs": [],
             "history": [],
+            "reviewRules": default_rules(),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -75,6 +77,57 @@ class UserStore:
     def list_model_configs(self, username: str) -> list[dict]:
         user = self.require_user(username)
         return [self.public_model_config(item) for item in user.get("modelConfigs", [])]
+
+    def list_rules(self, username: str) -> list[dict]:
+        user = self.require_user(username)
+        return user.setdefault("reviewRules", default_rules())
+
+    def add_rule(self, username: str, payload: dict) -> dict:
+        users = self.load()
+        user = self.require_user_from(users, username)
+        rule = self.build_rule(payload)
+        user.setdefault("reviewRules", default_rules()).append(rule)
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+        return rule
+
+    def update_rule(self, username: str, rule_id: str, payload: dict) -> dict:
+        users = self.load()
+        user = self.require_user_from(users, username)
+        rule = self.find_rule(user, rule_id)
+        for key in ("name", "description", "category", "language", "severity", "message", "suggestion"):
+            if key in payload:
+                rule[key] = str(payload.get(key, "")).strip()
+        for key in ("file_patterns", "include_keywords", "exclude_keywords"):
+            if key in payload:
+                rule[key] = normalize_string_list(payload.get(key))
+        if "enabled" in payload:
+            rule["enabled"] = bool(payload.get("enabled"))
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+        return rule
+
+    def delete_rule(self, username: str, rule_id: str):
+        users = self.load()
+        user = self.require_user_from(users, username)
+        before = len(user.setdefault("reviewRules", default_rules()))
+        user["reviewRules"] = [rule for rule in user["reviewRules"] if rule.get("id") != rule_id]
+        if len(user["reviewRules"]) == before:
+            raise UserError("规则不存在。")
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+
+    def copy_rule_template(self, username: str, template_id: str) -> dict:
+        template = next((item for item in RULE_TEMPLATES if item["template_id"] == template_id), None)
+        if not template:
+            raise UserError("规则模板不存在。")
+        users = self.load()
+        user = self.require_user_from(users, username)
+        rule = rule_from_template(template)
+        user.setdefault("reviewRules", default_rules()).append(rule)
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+        return rule
 
     def add_model_config(self, username: str, payload: dict) -> dict:
         users = self.load()
@@ -156,6 +209,31 @@ class UserStore:
             "isDefault": bool(config.get("isDefault")),
             "displayName": model_display_name(config),
         }
+
+    def build_rule(self, payload: dict) -> dict:
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise UserError("规则名称不能为空。")
+        return {
+            "id": secrets.token_urlsafe(8),
+            "name": name,
+            "description": str(payload.get("description", "")).strip(),
+            "category": normalize_rule_choice(payload.get("category", "common"), {"frontend", "backend", "common"}, "common"),
+            "language": normalize_rule_choice(payload.get("language", "common"), {"javascript/typescript", "javascript", "typescript", "python", "java", "common"}, "common"),
+            "file_patterns": normalize_string_list(payload.get("file_patterns", ["*"])),
+            "include_keywords": normalize_string_list(payload.get("include_keywords", [])),
+            "exclude_keywords": normalize_string_list(payload.get("exclude_keywords", [])),
+            "severity": normalize_rule_choice(payload.get("severity", "medium"), {"low", "medium", "high"}, "medium"),
+            "message": str(payload.get("message", "")).strip() or "规则预检命中候选关注点。",
+            "suggestion": str(payload.get("suggestion", "")).strip() or "请人工确认该候选关注点是否成立。",
+            "enabled": bool(payload.get("enabled", True)),
+        }
+
+    def find_rule(self, user: dict, rule_id: str) -> dict:
+        for rule in user.setdefault("reviewRules", default_rules()):
+            if rule.get("id") == rule_id:
+                return rule
+        raise UserError("规则不存在。")
 
     def add_history(self, username: str, result: dict, pr_url: str, model_config: dict) -> dict:
         users = self.load()
@@ -251,6 +329,7 @@ class UserStore:
         if "modelConfigs" in user:
             user.setdefault("history", [])
             user.setdefault("email", "")
+            user.setdefault("reviewRules", default_rules())
             return False
         api_key = user.get("apiKey")
         if not api_key:
@@ -270,6 +349,7 @@ class UserStore:
             }]
         user.setdefault("history", [])
         user.setdefault("email", "")
+        user.setdefault("reviewRules", default_rules())
         user.pop("apiKey", None)
         user.pop("defaultModel", None)
         return True
@@ -394,6 +474,19 @@ def normalize_model(model: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.:/-]{2,120}", model):
         raise UserError("模型名称格式不正确。")
     return model
+
+
+def normalize_string_list(value) -> list[str]:
+    if isinstance(value, str):
+        value = [item.strip() for item in value.replace("\n", ",").split(",")]
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def normalize_rule_choice(value: str, allowed: set[str], fallback: str) -> str:
+    value = str(value or fallback).strip()
+    return value if value in allowed else fallback
 
 
 def model_display_name(config: dict) -> str:

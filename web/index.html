@@ -22,6 +22,7 @@
             <button id="menuBtn" type="button">账号菜单</button>
             <div class="menu-list hidden" id="menuList">
               <button data-route="/settings/models" type="button">模型设置</button>
+              <button data-route="/settings/rules" type="button">规则管理</button>
               <button data-route="/history" type="button">历史记录</button>
               <button id="logoutBtn" type="button">退出登录</button>
             </div>
@@ -169,10 +170,30 @@
               <span>分析模式</span>
               <select id="analysisMode">
                 <option value="fast">快速分析</option>
-                <option value="deep">深度分析</option>
+                <option value="deep-audit">深度审计</option>
                 <option value="compare" disabled>多模型对比（预留）</option>
               </select>
             </label>
+          </div>
+          <div id="auditModelGrid" class="model-grid hidden">
+            <label class="field">
+              <span>初审模型</span>
+              <select id="reviewerModelSelect"></select>
+            </label>
+            <label class="field">
+              <span>审计模型</span>
+              <select id="auditorModelSelect"></select>
+            </label>
+          </div>
+          <div id="sameModelHint" class="notice hidden">
+            当前初审与审计使用同一模型，审计结果可能存在同源偏差。建议配置不同模型以获得更好的交叉验证效果。
+          </div>
+          <div class="rule-strip">
+            <div>
+              <strong id="enabledRuleCount">已启用 0 条规则</strong>
+              <p>规则预检会在调用 AI 前扫描新增代码行。</p>
+            </div>
+            <button data-route="/settings/rules" type="button">管理规则</button>
           </div>
 
           <div id="modelMissingHint" class="notice hidden">
@@ -188,7 +209,7 @@
         <section class="panel report-panel">
           <div id="emptyReport" class="empty-state">
             <h2>准备生成风险感知型 PR Review</h2>
-            <p>系统会输出 PR Overview、Context Coverage、Risk-Aware File Ranking、Rule Findings、AI Risks 和可复制 Review Comments。</p>
+            <p>系统会输出 PR 概览、上下文覆盖、文件风险排序、规则预检、AI 风险和可复制 Review Comments。</p>
           </div>
 
           <div id="reportContent" class="hidden">
@@ -229,8 +250,9 @@
             <div class="report-tabs" id="reportTabs">
               <button class="active" data-report-tab="overview" type="button">概览</button>
               <button data-report-tab="files" type="button">文件</button>
-              <button data-report-tab="rules" type="button">规则</button>
+              <button data-report-tab="rules" type="button">规则预检</button>
               <button data-report-tab="risks" type="button">风险</button>
+              <button data-report-tab="audit" type="button">深度审计</button>
               <button data-report-tab="comments" type="button">建议</button>
               <button data-report-tab="limits" type="button">限制</button>
             </div>
@@ -248,13 +270,21 @@
               </div>
             </div>
             <div class="report-pane hidden" data-report-panel="rules">
+              <p class="precheck-help">规则预检是在调用 AI 前，系统根据已启用的 Review 规则扫描出的候选关注点，不代表最终结论，AI 会结合 diff 证据进一步判断。</p>
               <div class="section-grid">
-                <section class="result-section"><h3>Rule Findings</h3><div id="ruleFindings" class="stack"></div></section>
+                <section class="result-section"><h3>规则预检</h3><div id="ruleFindings" class="stack"></div></section>
                 <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
               </div>
             </div>
             <div class="report-pane hidden" data-report-panel="risks">
               <section class="result-section"><h3>AI Risks</h3><div id="risks" class="stack"></div></section>
+            </div>
+            <div class="report-pane hidden" data-report-panel="audit">
+              <div class="section-grid">
+                <section class="result-section"><h3>初审结果</h3><div id="reviewerResultBox" class="stack"></div></section>
+                <section class="result-section"><h3>AI 审计结果</h3><div id="auditorResultBox" class="stack"></div></section>
+              </div>
+              <section class="result-section"><h3>最终融合结果</h3><div id="finalResultBox" class="stack"></div></section>
             </div>
             <div class="report-pane hidden" data-report-panel="comments">
               <section class="result-section"><h3>Review Comments</h3><div id="comments" class="stack"></div></section>
@@ -292,6 +322,44 @@
           <section class="panel list-panel">
             <h3>已保存模型</h3>
             <div id="modelConfigList" class="stack"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="rulesView" class="page-panel hidden">
+        <div class="section-head">
+          <div>
+            <h2>规则管理</h2>
+            <p>管理调用 AI 前执行的规则预检。规则命中只代表候选关注点，不代表最终结论。</p>
+          </div>
+          <button data-route="/review" type="button">返回 Review</button>
+        </div>
+        <div class="settings-grid">
+          <form id="ruleForm" class="panel auth-card">
+            <h3 id="ruleFormTitle">新增规则</h3>
+            <input id="editingRuleId" type="hidden">
+            <label class="field"><span>规则名称</span><input id="ruleName" placeholder="例如 异步错误处理检查"></label>
+            <label class="field"><span>规则说明</span><textarea id="ruleDescription" class="small-textarea"></textarea></label>
+            <div class="model-grid">
+              <label class="field"><span>分类</span><select id="ruleCategory"><option>frontend</option><option>backend</option><option>common</option></select></label>
+              <label class="field"><span>语言</span><select id="ruleLanguage"><option>javascript/typescript</option><option>javascript</option><option>typescript</option><option>python</option><option>java</option><option>common</option></select></label>
+            </div>
+            <label class="field"><span>适用文件</span><input id="ruleFilePatterns" placeholder="*.ts, *.tsx"></label>
+            <label class="field"><span>触发关键词</span><input id="ruleIncludeKeywords" placeholder="async, await"></label>
+            <label class="field"><span>排除关键词</span><input id="ruleExcludeKeywords" placeholder="try, catch"></label>
+            <label class="field"><span>风险等级</span><select id="ruleSeverity"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+            <label class="field"><span>命中提示</span><input id="ruleMessage"></label>
+            <label class="field"><span>建议动作</span><input id="ruleSuggestion"></label>
+            <label class="check-row"><input id="ruleEnabled" type="checkbox" checked> 启用规则</label>
+            <div class="actions"><button id="resetRuleFormBtn" type="button">清空</button><button class="primary" type="submit">保存规则</button></div>
+          </form>
+          <section class="panel list-panel">
+            <div class="section-head">
+              <h3>当前规则</h3>
+              <button id="loadTemplatesBtn" type="button">从模板复制</button>
+            </div>
+            <div id="ruleTemplateList" class="stack hidden"></div>
+            <div id="ruleList" class="stack"></div>
           </section>
         </div>
       </section>

@@ -7,7 +7,8 @@ import os
 import sys
 
 from reviewpilot.qwen_client import QwenError, test_chat_connection
-from reviewpilot.review_service import ReviewError, review_change
+from reviewpilot.review_service import ReviewError, deep_audit_review, review_change
+from reviewpilot.rule_checker import RULE_TEMPLATES
 from reviewpilot.user_store import SessionStore, UserError, UserStore
 
 ROOT = Path(__file__).resolve().parent
@@ -42,6 +43,14 @@ class Handler(BaseHTTPRequestHandler):
             if session:
                 self.send_json({"items": USER_STORE.list_history(session["username"])})
             return
+        if path == "/api/rules":
+            session = self.require_session()
+            if session:
+                self.send_json({"rules": USER_STORE.list_rules(session["username"])})
+            return
+        if path == "/api/rule-templates":
+            self.send_json({"templates": RULE_TEMPLATES})
+            return
         if path.startswith("/api/history/"):
             session = self.require_session()
             if session:
@@ -66,6 +75,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/review":
             self.handle_review()
             return
+        if path == "/api/review/deep-audit":
+            self.handle_deep_audit_review()
+            return
+        if path == "/api/rules":
+            self.handle_add_rule()
+            return
+        if path == "/api/rules/copy-template":
+            self.handle_copy_rule_template()
+            return
         if path == "/api/model-configs":
             self.handle_add_model_config()
             return
@@ -85,6 +103,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/model-configs/"):
             self.handle_update_model_config(path.rsplit("/", 1)[-1])
             return
+        if path.startswith("/api/rules/"):
+            self.handle_update_rule(path.rsplit("/", 1)[-1])
+            return
         if path.startswith("/api/"):
             self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
             return
@@ -97,6 +118,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/history/"):
             self.handle_delete_history(path.rsplit("/", 1)[-1])
+            return
+        if path.startswith("/api/rules/"):
+            self.handle_delete_rule(path.rsplit("/", 1)[-1])
             return
         if path.startswith("/api/"):
             self.send_json({"error": "接口不存在，请确认服务已重启并使用最新代码。"}, status=404)
@@ -208,7 +232,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(model_config_id, str):
                 raise ReviewError("模型配置 ID 必须是字符串。")
             model_config = USER_STORE.get_model_config_secret(session["username"], model_config_id or None)
-            result = review_change(pr_url, diff, model_config=model_config)
+            rules = USER_STORE.list_rules(session["username"])
+            result = review_change(pr_url, diff, model_config=model_config, rules=rules)
             history = USER_STORE.add_history(session["username"], result, pr_url, model_config)
             result["history_id"] = history["id"]
             self.send_json(result)
@@ -216,6 +241,66 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             self.send_json({"error": f"服务端发生未预期错误：{exc}"}, status=500)
+
+    def handle_deep_audit_review(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            payload = self.read_json()
+            pr_url = payload.get("pr_url", payload.get("prUrl", ""))
+            diff_text = payload.get("diff_text", payload.get("diff", ""))
+            reviewer_id = payload.get("reviewer_model_config_id", "")
+            auditor_id = payload.get("auditor_model_config_id", "")
+            reviewer_config = USER_STORE.get_model_config_secret(session["username"], reviewer_id or None)
+            auditor_config = USER_STORE.get_model_config_secret(session["username"], auditor_id or reviewer_id or None)
+            rules = USER_STORE.list_rules(session["username"])
+            result = deep_audit_review(pr_url, diff_text, reviewer_config, auditor_config, rules)
+            history = USER_STORE.add_history(session["username"], result, pr_url, reviewer_config)
+            result["history_id"] = history["id"]
+            self.send_json(result)
+        except (ReviewError, UserError) as exc:
+            self.send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self.send_json({"error": f"服务端发生未预期错误：{exc}"}, status=500)
+
+    def handle_add_rule(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            self.send_json({"rule": USER_STORE.add_rule(session["username"], self.read_json())})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_update_rule(self, rule_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            self.send_json({"rule": USER_STORE.update_rule(session["username"], rule_id, self.read_json())})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_delete_rule(self, rule_id: str):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            USER_STORE.delete_rule(session["username"], rule_id)
+            self.send_json({"ok": True})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_copy_rule_template(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            template_id = self.read_json().get("template_id", "")
+            self.send_json({"rule": USER_STORE.copy_rule_template(session["username"], template_id)})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
 
     def handle_history_detail(self, history_id: str):
         session = self.require_session()

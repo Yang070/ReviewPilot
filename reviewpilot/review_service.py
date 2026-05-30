@@ -13,18 +13,59 @@ class ReviewError(Exception):
 MAX_EVIDENCE_LINES = 100
 
 
-def review_change(pr_url: str, diff_text: str, api_key: str = "", model: str = "", model_config: dict | None = None) -> dict:
-    if model_config:
-        api_key = model_config.get("apiKey", "")
-        model = model_config.get("modelName", "")
-        base_url = model_config.get("baseUrl", "")
-        provider = model_config.get("provider", "")
-        model_display = model_config.get("displayName") or f"{provider} / {model}"
-    else:
-        base_url = ""
-        provider = "Qwen"
-        model_display = model
+def review_change(
+    pr_url: str,
+    diff_text: str,
+    api_key: str = "",
+    model: str = "",
+    model_config: dict | None = None,
+    rules: list[dict] | None = None,
+) -> dict:
+    api_key, model, base_url, provider, model_display = resolve_model(model_config, api_key, model)
     model = normalize_model(model)
+    context = prepare_review_context(pr_url, diff_text, rules)
+    messages = build_messages(
+        context["pr_overview"],
+        context["file_changes"],
+        context["priority_files"],
+        context["context_coverage"],
+        context["evidence"],
+        context["selected_context"],
+        context["rule_findings"],
+    )
+
+    try:
+        report = call_chat_model(messages, api_key, model, base_url, provider)
+    except QwenError as exc:
+        raise ReviewError(str(exc)) from exc
+
+    return normalize_report(
+        report,
+        context["pr_overview"],
+        context["file_changes"],
+        context["priority_files"],
+        context["context_coverage"],
+        context["rule_findings"],
+        model_display,
+        provider,
+    )
+
+
+def resolve_model(model_config: dict | None, api_key: str = "", model: str = "") -> tuple[str, str, str, str, str]:
+    if not model_config:
+        return api_key, model, "", "Qwen", model
+    provider = model_config.get("provider", "")
+    model_name = model_config.get("modelName", "")
+    return (
+        model_config.get("apiKey", ""),
+        model_name,
+        model_config.get("baseUrl", ""),
+        provider,
+        model_config.get("displayName") or f"{provider} / {model_name}",
+    )
+
+
+def prepare_review_context(pr_url: str, diff_text: str, rules: list[dict] | None = None) -> dict:
     pr = {}
     if pr_url.strip():
         try:
@@ -44,25 +85,74 @@ def review_change(pr_url: str, diff_text: str, api_key: str = "", model: str = "
     priority = summarize_priority_files(files)
     evidence, evidence_truncated = build_evidence(files, MAX_EVIDENCE_LINES)
     selected_context, context_truncated = build_selected_context(files)
-    rule_findings = run_rule_checks(files)
+    rule_findings = run_rule_checks(files, rules)
     context_coverage = build_context_coverage(file_changes, selected_context, evidence_truncated or context_truncated)
     pr_overview = build_pr_overview(pr, file_changes)
-    messages = build_messages(
-        pr_overview,
-        file_changes,
-        priority,
-        context_coverage,
-        evidence,
-        selected_context,
-        rule_findings,
-    )
+    return {
+        "pr_overview": pr_overview,
+        "file_changes": file_changes,
+        "priority_files": priority,
+        "evidence": evidence,
+        "selected_context": selected_context,
+        "rule_findings": rule_findings,
+        "context_coverage": context_coverage,
+    }
 
+
+def deep_audit_review(
+    pr_url: str,
+    diff_text: str,
+    reviewer_model_config: dict,
+    auditor_model_config: dict,
+    rules: list[dict] | None = None,
+) -> dict:
+    context = prepare_review_context(pr_url, diff_text, rules)
+    reviewer_key, reviewer_model, reviewer_base, reviewer_provider, reviewer_display = resolve_model(reviewer_model_config)
+    auditor_key, auditor_model, auditor_base, auditor_provider, auditor_display = resolve_model(auditor_model_config)
+
+    reviewer_messages = build_reviewer_messages(context)
     try:
-        report = call_chat_model(messages, api_key, model, base_url, provider)
+        reviewer_raw = call_chat_model(reviewer_messages, reviewer_key, normalize_model(reviewer_model), reviewer_base, reviewer_provider)
     except QwenError as exc:
-        raise ReviewError(str(exc)) from exc
+        raise ReviewError(f"初审模型调用失败：{exc}") from exc
 
-    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, rule_findings, model_display, provider)
+    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"])
+    auditor_result = {}
+    auditor_error = ""
+    try:
+        auditor_messages = build_auditor_messages(context, reviewer_result)
+        auditor_result = call_chat_model(auditor_messages, auditor_key, normalize_model(auditor_model), auditor_base, auditor_provider)
+    except QwenError as exc:
+        auditor_error = f"审计模型调用失败，当前结果未经过二次校验：{exc}"
+
+    final_result = merge_review_and_audit(reviewer_result, auditor_result, context)
+    if auditor_error:
+        final_result["limitations"].append(auditor_error)
+
+    return {
+        "review_mode": "deep_audit",
+        "pr": {"title": context["pr_overview"]["title"], "url": context["pr_overview"].get("url", "")},
+        "summary": final_result["summary"],
+        "riskLevel": max_risk_level(final_result["final_risks"]),
+        "model": f"初审：{reviewer_display}；审计：{auditor_display}",
+        "pr_overview": context["pr_overview"],
+        "file_changes": context["file_changes"],
+        "files": context["file_changes"],
+        "priority_files": context["priority_files"],
+        "risk_ranking": context["priority_files"],
+        "context_coverage": context["context_coverage"],
+        "rule_findings": update_rule_statuses(context["rule_findings"], final_result["final_risks"]),
+        "reviewer_result": reviewer_result,
+        "auditor_result": auditor_result or {"audit_summary": auditor_error, "audit_notes": [auditor_error]},
+        "final_result": final_result,
+        "changed_modules": final_result["changed_modules"],
+        "risks": final_result["final_risks"],
+        "findings": final_result["final_risks"],
+        "review_comments": final_result["review_comments"],
+        "overall_score": 80,
+        "limitations": final_result["limitations"],
+        "context_truncated": context["context_coverage"]["context_truncated"],
+    }
 
 
 def build_messages(
@@ -134,6 +224,73 @@ def build_messages(
     ]
 
 
+def build_reviewer_messages(context: dict) -> list[dict]:
+    return build_messages(
+        context["pr_overview"],
+        context["file_changes"],
+        context["priority_files"],
+        context["context_coverage"],
+        context["evidence"],
+        context["selected_context"],
+        context["rule_findings"],
+    )
+
+
+def build_auditor_messages(context: dict, reviewer_result: dict) -> list[dict]:
+    system = (
+        "You are ReviewPilot Auditor. Do not write a new full review. "
+        "Audit the reviewer_result only. Check evidence, over-inference, stale dependency claims, "
+        "lock-file overfocus, missed rule findings, missed high-risk files, risk level, and confidence. "
+        "Return Chinese JSON only."
+    )
+    user = {
+        "task": "审计初审模型输出质量，指出可能误检、漏检和置信度调整。Auditor 只是辅助校验层，不是绝对裁判。",
+        "rules": [
+            "没有明确 diff evidence 的问题建议降级。",
+            "可能遗漏的问题只放入 missed_risk_candidates，不直接认定 confirmed_issue。",
+            "不要基于过时知识判断第三方依赖版本状态。",
+            "不要把 lock 文件作为主要风险来源。",
+        ],
+        "pr_overview": context["pr_overview"],
+        "selected_diff": context["selected_context"],
+        "rule_findings": context["rule_findings"],
+        "reviewer_result": reviewer_result,
+        "schema": {
+            "audit_summary": "string",
+            "false_positive_candidates": [{
+                "risk_id": "risk_1",
+                "file": "path",
+                "reason": "why maybe false positive",
+                "audit_action": "keep | downgrade | remove | needs_human_check",
+                "suggested_type": "confirmed_issue | potential_risk | needs_human_check",
+                "suggested_confidence": "0-100",
+            }],
+            "missed_risk_candidates": [{
+                "file": "path",
+                "evidence": "diff or rule evidence",
+                "issue": "possible missed issue",
+                "reason": "why maybe missed",
+                "suggestion": "suggestion",
+                "risk_level": "high | medium | low",
+                "confidence": "0-100",
+                "source": "auditor_model",
+            }],
+            "confidence_adjustments": [{
+                "risk_id": "risk_1",
+                "old_confidence": "0-100",
+                "new_confidence": "0-100",
+                "reason": "reason",
+            }],
+            "audit_notes": ["string"],
+            "final_recommendation": "string",
+        },
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False, separators=(",", ":"))},
+    ]
+
+
 def build_pr_overview(pr: dict, file_changes: list[dict]) -> dict:
     return {
         "title": pr.get("title", "") or "粘贴 diff 分析",
@@ -175,6 +332,7 @@ def normalize_report(
 ) -> dict:
     file_paths = {file["filename"] for file in file_changes}
     risks = normalize_risks(report.get("risks", []), file_paths)
+    rule_findings = update_rule_statuses(rule_findings, risks)
     changed_modules = normalize_changed_modules(report.get("changed_modules", []), file_paths, file_changes)
     review_comments = normalize_review_comments(report.get("review_comments", []), file_paths)
     limitations = normalize_limitations(report.get("limitations", []), context_coverage)
@@ -229,6 +387,7 @@ def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
         if risk_type not in allowed_types:
             risk_type = "potential_risk"
         risks.append({
+            "id": item.get("id") or f"risk_{len(risks) + 1}",
             "file": file,
             "risk_level": risk_level,
             "severity": risk_level,
@@ -238,8 +397,157 @@ def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
             "reason": item.get("reason", ""),
             "suggestion": item.get("suggestion", ""),
             "confidence": confidence,
+            "source": item.get("source", "reviewer_model"),
         })
     return risks
+
+
+def normalize_reviewer_result(report: dict, file_changes: list[dict]) -> dict:
+    file_paths = {file["filename"] for file in file_changes}
+    risks = normalize_risks(report.get("risks", []), file_paths)
+    for risk in risks:
+        risk["confidence"] = confidence_to_100(risk.get("confidence", 50))
+        risk["reviewer_confidence"] = risk["confidence"]
+    modules = []
+    for item in report.get("changed_modules", []) if isinstance(report.get("changed_modules", []), list) else []:
+        if not isinstance(item, dict):
+            continue
+        modules.append({
+            "name": item.get("name", item.get("module", "未命名模块")),
+            "files": item.get("files", []),
+            "summary": item.get("summary", item.get("change", "")),
+        })
+    comments = normalize_review_comments(report.get("review_comments", []), file_paths)
+    return {
+        "summary": report.get("summary", ""),
+        "changed_modules": modules,
+        "risks": risks,
+        "review_comments": comments,
+    }
+
+
+def merge_review_and_audit(reviewer_result: dict, auditor_result: dict, context: dict) -> dict:
+    actions = {
+        item.get("risk_id"): item
+        for item in auditor_result.get("false_positive_candidates", [])
+        if isinstance(item, dict)
+    } if isinstance(auditor_result, dict) else {}
+    adjustments = {
+        item.get("risk_id"): item
+        for item in auditor_result.get("confidence_adjustments", [])
+        if isinstance(item, dict)
+    } if isinstance(auditor_result, dict) else {}
+    final_risks = []
+    dismissed = []
+
+    for risk in reviewer_result.get("risks", []):
+        risk_id = risk.get("id")
+        audit = actions.get(risk_id, {})
+        adjustment = adjustments.get(risk_id, {})
+        old_conf = confidence_to_100(risk.get("confidence", 50))
+        auditor_conf = confidence_to_100(audit.get("suggested_confidence", adjustment.get("new_confidence", old_conf)))
+        final_conf = min(old_conf, auditor_conf) if audit else confidence_to_100(adjustment.get("new_confidence", old_conf))
+        final_type = audit.get("suggested_type", risk.get("type", "potential_risk"))
+        status = "accepted"
+        note = audit.get("reason", adjustment.get("reason", "审计模型未提出降级意见。"))
+
+        if is_lock_only_risk(risk, context):
+            final_type = "needs_human_check"
+            status = "downgraded"
+            note = "该风险主要来自 lock 文件，缺少 package.json 或源代码证据支撑，已降级为待人工确认。"
+        if final_conf < 60 and final_type == "confirmed_issue":
+            final_type = "needs_human_check"
+            status = "downgraded"
+            note = "最终置信度低于 60，不能作为 confirmed_issue。"
+        if audit.get("audit_action") in {"downgrade", "needs_human_check"}:
+            final_type = "needs_human_check"
+            status = "downgraded"
+        if audit.get("audit_action") == "remove":
+            dismissed.append({
+                "risk_id": risk_id,
+                "file": risk.get("file", ""),
+                "issue": risk.get("issue", ""),
+                "dismiss_reason": note or "审计模型认为证据不足，作为误检候选移除。",
+            })
+            continue
+
+        final_risks.append({
+            **risk,
+            "type": final_type if final_type in {"confirmed_issue", "potential_risk", "needs_human_check"} else "needs_human_check",
+            "reviewer_confidence": old_conf,
+            "auditor_confidence": auditor_conf,
+            "final_confidence": final_conf,
+            "audit_status": status,
+            "audit_note": note,
+        })
+
+    for item in auditor_result.get("missed_risk_candidates", []) if isinstance(auditor_result, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        confidence = confidence_to_100(item.get("confidence", 50))
+        final_risks.append({
+            "id": f"auditor_{len(final_risks) + 1}",
+            "file": item.get("file", ""),
+            "risk_level": item.get("risk_level", "medium"),
+            "type": "potential_risk" if confidence >= 60 else "needs_human_check",
+            "evidence": item.get("evidence", ""),
+            "issue": item.get("issue", ""),
+            "reason": item.get("reason", ""),
+            "suggestion": item.get("suggestion", ""),
+            "reviewer_confidence": 0,
+            "auditor_confidence": confidence,
+            "final_confidence": confidence,
+            "audit_status": "added_by_auditor",
+            "audit_note": "审计模型补充的可能漏检项，需人工复核。",
+            "source": "auditor_model",
+        })
+
+    return {
+        "summary": reviewer_result.get("summary", ""),
+        "changed_modules": reviewer_result.get("changed_modules", []),
+        "final_risks": final_risks,
+        "dismissed_risks": dismissed,
+        "review_comments": reviewer_result.get("review_comments", []),
+        "limitations": [
+            "AI Review 结果仅作为预审建议，最终结论需要人工 Reviewer 结合完整 diff 判断。",
+            "Auditor Model 不能完全保证发现所有误检和漏检，只用于降低单模型输出的不确定性。",
+        ],
+    }
+
+
+def update_rule_statuses(rule_findings: list[dict], final_risks: list[dict]) -> list[dict]:
+    updated = []
+    for finding in rule_findings:
+        status = "待 AI 判断"
+        same_file = [risk for risk in final_risks if risk.get("file") == finding.get("file")]
+        if any(risk.get("audit_status") == "accepted" for risk in same_file):
+            status = "已采纳为风险"
+        elif any(risk.get("type") == "needs_human_check" for risk in same_file):
+            status = "已降级为待确认"
+        elif final_risks:
+            status = "已忽略"
+        updated.append({**finding, "status": status})
+    return updated
+
+
+def confidence_to_100(value) -> int:
+    try:
+        value = float(value)
+        if value <= 1:
+            value *= 100
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return 50
+
+
+def is_lock_only_risk(risk: dict, context: dict) -> bool:
+    file = risk.get("file", "").lower()
+    if not file.endswith(("package-lock.json", "yarn.lock", "pnpm-lock.yaml")):
+        return False
+    evidence = str(risk.get("evidence", "")).lower()
+    return "package.json" not in evidence and not any(
+        changed.get("filename") == "package.json" for changed in context.get("file_changes", [])
+    )
 
 
 def normalize_changed_modules(items: list, file_paths: set[str], file_changes: list[dict]) -> list[dict]:

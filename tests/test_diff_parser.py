@@ -119,7 +119,7 @@ diff --git a/package-lock.json b/package-lock.json
 +await login()
 """
         findings = run_rule_checks(parse_diff(diff))
-        self.assertEqual(findings[0]["type"], "potential_risk")
+        self.assertEqual(findings[0]["type"], "needs_human_check")
         self.assertIn("异步", findings[0]["issue"])
 
     def test_context_coverage_reports_skipped_files(self):
