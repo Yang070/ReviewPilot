@@ -1,9 +1,10 @@
-from .diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
+from .diff_parser import build_evidence, build_selected_context, parse_diff, summarize_file_diffs, summarize_files, summarize_priority_files
 from .github_client import GitHubError, fetch_public_pr
 from .qwen_client import QwenError, call_chat_model
 from .rule_checker import run_rule_checks
 from .user_store import normalize_model
 import json
+import re
 
 
 class ReviewError(Exception):
@@ -43,6 +44,7 @@ def review_change(
         report,
         context["pr_overview"],
         context["file_changes"],
+        context["file_diffs"],
         context["priority_files"],
         context["context_coverage"],
         context["rule_findings"],
@@ -82,6 +84,7 @@ def prepare_review_context(pr_url: str, diff_text: str, rules: list[dict] | None
         raise ReviewError("没有从 diff 中解析到变更文件。")
 
     file_changes = summarize_files(files)
+    file_diffs = summarize_file_diffs(files)
     priority = summarize_priority_files(files)
     evidence, evidence_truncated = build_evidence(files, MAX_EVIDENCE_LINES)
     selected_context, context_truncated = build_selected_context(files)
@@ -91,6 +94,7 @@ def prepare_review_context(pr_url: str, diff_text: str, rules: list[dict] | None
     return {
         "pr_overview": pr_overview,
         "file_changes": file_changes,
+        "file_diffs": file_diffs,
         "priority_files": priority,
         "evidence": evidence,
         "selected_context": selected_context,
@@ -116,7 +120,7 @@ def deep_audit_review(
     except QwenError as exc:
         raise ReviewError(f"初审模型调用失败：{exc}") from exc
 
-    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"])
+    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"], context["file_diffs"])
     auditor_result = {}
     auditor_error = ""
     try:
@@ -137,6 +141,7 @@ def deep_audit_review(
         "model": f"初审：{reviewer_display}；审计：{auditor_display}",
         "pr_overview": context["pr_overview"],
         "file_changes": context["file_changes"],
+        "file_diffs": context["file_diffs"],
         "files": context["file_changes"],
         "priority_files": context["priority_files"],
         "risk_ranking": context["priority_files"],
@@ -324,6 +329,7 @@ def normalize_report(
     report: dict,
     pr_overview: dict,
     file_changes: list[dict],
+    file_diffs: list[dict],
     priority_files: list[dict],
     context_coverage: dict,
     rule_findings: list[dict],
@@ -332,7 +338,9 @@ def normalize_report(
 ) -> dict:
     file_paths = {file["filename"] for file in file_changes}
     risks = normalize_risks(report.get("risks", []), file_paths)
+    bind_items_to_lines(risks, file_diffs)
     rule_findings = update_rule_statuses(rule_findings, risks)
+    bind_items_to_lines(rule_findings, file_diffs)
     changed_modules = normalize_changed_modules(report.get("changed_modules", []), file_paths, file_changes)
     review_comments = normalize_review_comments(report.get("review_comments", []), file_paths)
     limitations = normalize_limitations(report.get("limitations", []), context_coverage)
@@ -348,6 +356,7 @@ def normalize_report(
         "model": model,
         "provider": provider,
         "file_changes": file_changes,
+        "file_diffs": file_diffs,
         "files": file_changes,
         "priority_files": priority_files,
         "risk_ranking": priority_files,
@@ -698,6 +707,7 @@ def deep_audit_review(
             }
 
     final_result = merge_review_and_audit(reviewer_result, auditor_result, context)
+    bind_items_to_lines(final_result["final_risks"], context["file_diffs"])
     if warning:
         final_result["limitations"].append(warning)
 
@@ -735,6 +745,7 @@ def build_reviewer_messages(context: dict) -> list[dict]:
         "每条风险必须有 evidence；不确定的问题标记为 needs_human_check；"
         "不要为了凑数量输出泛泛建议；不要基于过时模型知识判断第三方依赖版本状态；"
         "不要把 package-lock.json、yarn.lock、pnpm-lock.yaml 作为主要风险来源。"
+        "每条风险尽量给出 line_start、line_end、side；行号对应新代码行号，side 默认 new。"
         "如果没有明确风险，可以返回空 risks。只返回中文 JSON。"
     )
     user = {
@@ -758,6 +769,9 @@ def build_reviewer_messages(context: dict) -> list[dict]:
                 "risk_level": "high | medium | low",
                 "type": "confirmed_issue | potential_risk | needs_human_check",
                 "evidence": "diff 中可见的证据",
+                "line_start": "新代码起始行号，无法判断可为空",
+                "line_end": "新代码结束行号，无法判断可为空",
+                "side": "new | old",
                 "issue": "问题描述",
                 "reason": "为什么这是风险",
                 "suggestion": "修改建议",
@@ -851,6 +865,9 @@ def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
             "risk_level": risk_level,
             "severity": risk_level,
             "type": risk_type,
+            "line_start": normalize_line_number(item.get("line_start")),
+            "line_end": normalize_line_number(item.get("line_end")),
+            "side": item.get("side", "new") if item.get("side") in {"new", "old"} else "new",
             "evidence": evidence,
             "issue": item.get("issue", item.get("message", "")),
             "reason": item.get("reason", ""),
@@ -964,3 +981,76 @@ def merge_review_and_audit(reviewer_result: dict, auditor_result: dict, context:
             "Auditor Model 不能完全保证发现所有误检和漏检，只用于降低单模型输出的不确定性。",
         ],
     }
+
+
+def normalize_reviewer_result(report: dict, file_changes: list[dict], file_diffs: list[dict] | None = None) -> dict:
+    file_paths = {file["filename"] for file in file_changes}
+    risks = normalize_risks(report.get("risks", []), file_paths)
+    bind_items_to_lines(risks, file_diffs or [])
+    for risk in risks:
+        risk["confidence"] = confidence_to_100(risk.get("confidence", 50))
+        risk["reviewer_confidence"] = risk["confidence"]
+    modules = []
+    for item in report.get("changed_modules", []) if isinstance(report.get("changed_modules", []), list) else []:
+        if not isinstance(item, dict):
+            continue
+        modules.append({
+            "name": item.get("name", item.get("module", "未命名模块")),
+            "files": item.get("files", []),
+            "summary": item.get("summary", item.get("change", "")),
+        })
+    comments = normalize_review_comments(report.get("review_comments", []), file_paths)
+    return {
+        "summary": report.get("summary", ""),
+        "changed_modules": modules,
+        "risks": risks,
+        "review_comments": comments,
+    }
+
+
+def bind_items_to_lines(items: list[dict], file_diffs: list[dict]) -> list[dict]:
+    diff_map = {item.get("filename"): item for item in file_diffs or []}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item.setdefault("side", "new")
+        if item.get("line_start"):
+            item.setdefault("line_end", item.get("line_start"))
+            continue
+        diff = diff_map.get(item.get("file"))
+        if not diff:
+            continue
+        line_no = locate_line_for_item(item, diff.get("parsed_lines", []))
+        if line_no:
+            item["line_start"] = line_no
+            item["line_end"] = line_no
+            item["side"] = "new"
+    return items
+
+
+def locate_line_for_item(item: dict, parsed_lines: list[dict]) -> int | None:
+    evidence = strip_line_prefix(str(item.get("evidence", ""))).strip()
+    issue = str(item.get("issue", "")).strip()
+    candidates = [line for line in parsed_lines if line.get("type") == "add" and line.get("new_line_no")]
+    if not candidates:
+        candidates = [line for line in parsed_lines if line.get("new_line_no")]
+    for needle in [evidence, issue]:
+        if not needle:
+            continue
+        for line in candidates:
+            content = str(line.get("content", "")).strip()
+            if content and (content in needle or needle in content):
+                return line.get("new_line_no")
+    return candidates[0].get("new_line_no") if candidates else None
+
+
+def strip_line_prefix(text: str) -> str:
+    return re.sub(r"^L\d+:\s*", "", text)
+
+
+def normalize_line_number(value) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None

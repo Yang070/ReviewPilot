@@ -6,6 +6,7 @@ import re
 class ChangedLine:
     kind: str
     content: str
+    old_line: int | None
     new_line: int | None
     hunk: str
 
@@ -18,6 +19,7 @@ class ChangedFile:
     deletions: int = 0
     hunks: list[str] = field(default_factory=list)
     lines: list[ChangedLine] = field(default_factory=list)
+    parsed_lines: list[ChangedLine] = field(default_factory=list)
 
 
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -27,6 +29,7 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
     files: list[ChangedFile] = []
     current: ChangedFile | None = None
     current_hunk = ""
+    old_line = None
     new_line = None
 
     for raw_line in diff_text.splitlines():
@@ -35,6 +38,7 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
             current = ChangedFile(path=file_match.group(2))
             files.append(current)
             current_hunk = ""
+            old_line = None
             new_line = None
             continue
 
@@ -57,8 +61,9 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
         if raw_line.startswith("@@"):
             current_hunk = raw_line
             current.hunks.append(raw_line)
-            hunk_match = HUNK_RE.match(raw_line)
-            new_line = int(hunk_match.group(1)) if hunk_match else None
+            hunk_match = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw_line)
+            old_line = int(hunk_match.group(1)) if hunk_match else None
+            new_line = int(hunk_match.group(2)) if hunk_match else None
             continue
 
         if raw_line.startswith("+++") or raw_line.startswith("---"):
@@ -66,18 +71,28 @@ def parse_diff(diff_text: str) -> list[ChangedFile]:
 
         if raw_line.startswith("+"):
             current.additions += 1
-            current.lines.append(ChangedLine("add", raw_line[1:], new_line, current_hunk))
+            line = ChangedLine("add", raw_line[1:], None, new_line, current_hunk)
+            current.lines.append(line)
+            current.parsed_lines.append(line)
             if new_line is not None:
                 new_line += 1
             continue
 
         if raw_line.startswith("-"):
             current.deletions += 1
-            current.lines.append(ChangedLine("delete", raw_line[1:], None, current_hunk))
+            line = ChangedLine("delete", raw_line[1:], old_line, None, current_hunk)
+            current.lines.append(line)
+            current.parsed_lines.append(line)
+            if old_line is not None:
+                old_line += 1
             continue
 
-        if raw_line.startswith(" ") and new_line is not None:
-            new_line += 1
+        if raw_line.startswith(" "):
+            current.parsed_lines.append(ChangedLine("context", raw_line[1:], old_line, new_line, current_hunk))
+            if old_line is not None:
+                old_line += 1
+            if new_line is not None:
+                new_line += 1
 
     return files
 
@@ -167,6 +182,23 @@ def summarize_priority_files(files: list[ChangedFile], limit=8) -> list[dict]:
         if len(selected) >= limit:
             break
     return selected
+
+
+def summarize_file_diffs(files: list[ChangedFile]) -> list[dict]:
+    return [{
+        "filename": file.path,
+        "status": file.status,
+        "additions": file.additions,
+        "deletions": file.deletions,
+        "hunks": len(file.hunks),
+        "parsed_lines": [{
+            "type": line.kind if line.kind in {"context", "add", "delete"} else "context",
+            "old_line_no": line.old_line,
+            "new_line_no": line.new_line,
+            "content": line.content,
+            "hunk": line.hunk,
+        } for line in file.parsed_lines],
+    } for file in files]
 
 
 def classify_file(path: str) -> str:

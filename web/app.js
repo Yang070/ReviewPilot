@@ -75,6 +75,15 @@ const reportTabs = document.querySelector("#reportTabs");
 const reviewerResultBox = document.querySelector("#reviewerResultBox");
 const auditorResultBox = document.querySelector("#auditorResultBox");
 const finalResultBox = document.querySelector("#finalResultBox");
+const fileSortMode = document.querySelector("#fileSortMode");
+const onlyRiskFiles = document.querySelector("#onlyRiskFiles");
+const onlyHighRisk = document.querySelector("#onlyHighRisk");
+const showRuleMarkers = document.querySelector("#showRuleMarkers");
+const showAuditNotes = document.querySelector("#showAuditNotes");
+const changedFilesNav = document.querySelector("#changedFilesNav");
+const linkedRiskList = document.querySelector("#linkedRiskList");
+const diffFileHeader = document.querySelector("#diffFileHeader");
+const diffViewer = document.querySelector("#diffViewer");
 
 const modelForm = document.querySelector("#modelForm");
 const modelFormTitle = document.querySelector("#modelFormTitle");
@@ -139,6 +148,7 @@ let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
 let progressTimer = null;
 let activeInputTab = "url";
+let activeDiffFile = "";
 
 const providerDefaults = {
   OpenAI: "https://api.openai.com/v1",
@@ -364,6 +374,23 @@ reportTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-report-tab]");
   if (!button) return;
   setReportTab(button.dataset.reportTab);
+});
+fileSortMode.addEventListener("change", () => renderDiffReview(lastReport));
+onlyRiskFiles.addEventListener("change", () => renderDiffReview(lastReport));
+onlyHighRisk.addEventListener("change", () => renderDiffReview(lastReport));
+showRuleMarkers.addEventListener("change", () => renderDiffReview(lastReport));
+showAuditNotes.addEventListener("change", () => renderDiffReview(lastReport));
+changedFilesNav.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-diff-file]");
+  if (!item) return;
+  activeDiffFile = item.dataset.diffFile;
+  renderDiffReview(lastReport);
+});
+linkedRiskList.addEventListener("click", (event) => {
+  const item = event.target.closest("[data-risk-jump]");
+  if (!item) return;
+  activeDiffFile = item.dataset.riskFile;
+  renderDiffReview(lastReport, Number(item.dataset.riskLine || 0));
 });
 
 ruleForm.addEventListener("submit", async (event) => {
@@ -841,7 +868,7 @@ function renderReport(data) {
   lastReport = data;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
-  setReportTab("overview");
+  setReportTab("code");
   const fileChanges = data.file_changes || data.files || [];
   const risks = data.risks || data.findings || [];
   const modules = data.changed_modules || [];
@@ -874,6 +901,7 @@ function renderReport(data) {
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
   limitationsBox.innerHTML = (data.limitations || []).length ? data.limitations.map(renderLimitation).join("") : empty("暂无额外限制说明");
   renderAuditReport(data);
+  renderDiffReview(data);
   reviewAskThreadsState = data.ask_threads || [];
   renderAskPanel("review", data.history_id || "", reviewAskThreadsState);
 }
@@ -971,6 +999,153 @@ function renderAskThread(item) {
       <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>
     </div>
   </article>`;
+}
+
+function renderDiffReview(report, focusLine = 0) {
+  if (!report || !diffViewer) return;
+  const fileDiffs = report.file_diffs || [];
+  const fileChanges = report.file_changes || [];
+  const risks = report.risks || report.final_result?.final_risks || [];
+  const rules = report.rule_findings || [];
+  if (!fileDiffs.length) {
+    changedFilesNav.innerHTML = empty("当前报告没有可展示的 diff。");
+    linkedRiskList.innerHTML = empty("暂无风险定位。");
+    diffFileHeader.innerHTML = "";
+    diffViewer.innerHTML = empty("后端没有返回 file_diffs，无法展示代码变更视图。");
+    return;
+  }
+  const files = sortDiffFiles(fileDiffs.map((file, index) => ({
+    ...file,
+    index,
+    change: fileChanges.find(item => item.filename === file.filename) || {},
+    risks: risks.filter(item => item.file === file.filename),
+    rules: rules.filter(item => item.file === file.filename),
+  })));
+  const visibleFiles = files.filter(file => {
+    if (onlyRiskFiles.checked && !file.risks.length) return false;
+    if (onlyHighRisk.checked && !file.risks.some(item => item.risk_level === "high")) return false;
+    return true;
+  });
+  const firstFile = visibleFiles[0] || files[0];
+  if (!activeDiffFile || !files.some(file => file.filename === activeDiffFile)) activeDiffFile = firstFile?.filename || "";
+  const current = files.find(file => file.filename === activeDiffFile) || firstFile;
+  changedFilesNav.innerHTML = visibleFiles.map(renderChangedFileNavItem).join("") || empty("没有符合筛选条件的文件。");
+  linkedRiskList.innerHTML = risks.length ? risks.map(renderLinkedRiskItem).join("") : empty("未发现有明确证据的风险。");
+  if (!current) {
+    diffFileHeader.innerHTML = "";
+    diffViewer.innerHTML = empty("请选择一个文件查看 diff。");
+    return;
+  }
+  diffFileHeader.innerHTML = renderDiffFileHeader(current);
+  diffViewer.innerHTML = renderDiffLines(current, showRuleMarkers.checked, showAuditNotes.checked);
+  if (focusLine) {
+    const target = diffViewer.querySelector(`[data-new-line="${focusLine}"]`);
+    if (target) {
+      target.scrollIntoView({behavior: "smooth", block: "center"});
+      target.classList.add("line-focus");
+      setTimeout(() => target.classList.remove("line-focus"), 1600);
+    }
+  }
+}
+
+function sortDiffFiles(files) {
+  const mode = fileSortMode.value;
+  return [...files].sort((a, b) => {
+    if (mode === "count") return b.risks.length - a.risks.length || b.change.risk_score - a.change.risk_score || a.index - b.index;
+    if (mode === "order") return a.index - b.index;
+    return Number(b.change.risk_score || 0) - Number(a.change.risk_score || 0) || b.risks.length - a.risks.length || a.index - b.index;
+  });
+}
+
+function renderChangedFileNavItem(file) {
+  const score = Number(file.change.risk_score || 0);
+  const risk = riskScoreText(score);
+  const deep = isDeepAnalyzed(file.change, lastReport);
+  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
+    <strong>${escapeHtml(file.filename)}</strong>
+    <span>${risk.label} · ${file.risks.length} 条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
+    <small>${statusText(file.status).label}</small>
+  </button>`;
+}
+
+function renderLinkedRiskItem(risk) {
+  const line = risk.line_start ? `${risk.file}:${risk.line_start}` : `${risk.file}：文件级`;
+  return `<button class="risk-jump-item" type="button" data-risk-jump="${escapeHtmlAttr(risk.id || "")}" data-risk-file="${escapeHtmlAttr(risk.file || "")}" data-risk-line="${risk.line_start || ""}">
+    <span class="badge ${risk.risk_level}">${riskLevelText(risk.risk_level)}</span>
+    <strong>${escapeHtml(risk.issue || "风险项")}</strong>
+    <small>${escapeHtml(line)} · ${auditStatusText(risk.audit_status)}</small>
+  </button>`;
+}
+
+function renderDiffFileHeader(file) {
+  const score = Number(file.change.risk_score || 0);
+  const risk = riskScoreText(score);
+  const reasons = (file.change.risk_reasons || []).join("；") || "普通变更文件";
+  return `<div>
+    <h3>${escapeHtml(file.filename)}</h3>
+    <p>${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions} · ${escapeHtml(reasons)}</p>
+  </div>`;
+}
+
+function renderDiffLines(file, showRules, showAudit) {
+  const risksByLine = groupByLine(file.risks);
+  const rulesByLine = groupByLine(file.rules);
+  return `<div class="diff-table">${(file.parsed_lines || []).map(line => {
+    const newLine = line.new_line_no || "";
+    const oldLine = line.old_line_no || "";
+    const lineRisks = risksByLine.get(line.new_line_no) || [];
+    const lineRules = showRules ? (rulesByLine.get(line.new_line_no) || []) : [];
+    const row = `<div class="diff-line diff-${line.type} ${lineRisks.length ? "has-risk" : ""} ${lineRules.length ? "has-rule" : ""}" data-new-line="${line.new_line_no || ""}">
+      <span class="line-no old">${oldLine}</span>
+      <span class="line-no new">${newLine}</span>
+      <span class="line-mark">${line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}</span>
+      <code>${escapeHtml(line.content)}</code>
+    </div>`;
+    const comments = [
+      ...lineRisks.map(item => renderInlineRiskComment(item, showAudit)),
+      ...lineRules.map(renderInlineRuleMarker),
+    ].join("");
+    return row + comments;
+  }).join("")}</div>`;
+}
+
+function renderInlineRiskComment(risk, showAudit) {
+  return `<article class="inline-comment risk-comment">
+    <div class="card-title">
+      <span>${riskLevelText(risk.risk_level)} · ${typeText(risk.type)}</span>
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(risk.suggestion || risk.issue || "")}">复制建议</button>
+    </div>
+    <p><strong>问题：</strong>${escapeHtml(risk.issue)}</p>
+    <p><strong>原因：</strong>${escapeHtml(risk.reason)}</p>
+    <p><strong>建议：</strong>${escapeHtml(risk.suggestion)}</p>
+    <p><strong>置信度：</strong>${confidenceLabel(risk.final_confidence ?? risk.confidence)}；<strong>审计结果：</strong>${auditStatusText(risk.audit_status)}</p>
+    ${showAudit && risk.audit_note ? `<p class="explain-note">${escapeHtml(risk.audit_note)}</p>` : ""}
+  </article>`;
+}
+
+function renderInlineRuleMarker(rule) {
+  return `<article class="inline-comment rule-comment">
+    <div class="card-title"><span>规则预检 · ${escapeHtml(rule.status || "待 AI 判断")}</span></div>
+    <p><strong>命中原因：</strong>${escapeHtml(rule.reason || rule.issue || "")}</p>
+    <p><strong>证据：</strong>${escapeHtml(rule.evidence || "")}</p>
+    <p><strong>建议：</strong>${escapeHtml(rule.suggestion || "")}</p>
+  </article>`;
+}
+
+function groupByLine(items) {
+  const map = new Map();
+  for (const item of items || []) {
+    const line = Number(item.line_start || item.line_end || 0);
+    if (!line) continue;
+    if (!map.has(line)) map.set(line, []);
+    map.get(line).push(item);
+  }
+  return map;
+}
+
+function isDeepAnalyzed(file, report) {
+  const analyzed = report?.context_coverage?.analyzed_file_list || [];
+  return analyzed.includes(file.filename);
 }
 
 function renderOverview(overview, model) {

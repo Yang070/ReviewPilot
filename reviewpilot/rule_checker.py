@@ -167,6 +167,7 @@ def evaluate_rule(rule: dict, file: ChangedFile, package_lock_changed: bool) -> 
             return None
         evidence = first_keyword_line(file, include_keywords) or first_added_line(file) or rule.get("message", "")
 
+    line_no = evidence_line_number(evidence)
     return {
         "rule_id": rule.get("id", ""),
         "rule_name": rule.get("name", "未命名规则"),
@@ -176,6 +177,9 @@ def evaluate_rule(rule: dict, file: ChangedFile, package_lock_changed: bool) -> 
         "file": file.path,
         "risk_level": normalize_severity(rule.get("severity", "medium")),
         "type": "needs_human_check",
+        "line_start": line_no,
+        "line_end": line_no,
+        "side": "new",
         "evidence": evidence,
         "issue": rule.get("message", "规则预检命中候选关注点。"),
         "reason": "新增代码命中了规则的触发关键词，且没有命中排除关键词。",
@@ -216,3 +220,10 @@ def first_keyword_line(file: ChangedFile, keywords: list[str]) -> str:
             prefix = "" if line.new_line is None else f"L{line.new_line}: "
             return prefix + line.content.strip()
     return ""
+
+
+def evidence_line_number(evidence: str) -> int | None:
+    if not isinstance(evidence, str) or not evidence.startswith("L"):
+        return None
+    number = evidence.split(":", 1)[0].removeprefix("L")
+    return int(number) if number.isdigit() else None

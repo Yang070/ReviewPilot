@@ -1,6 +1,6 @@
 import unittest
 
-from reviewpilot.review_service import merge_review_and_audit
+from reviewpilot.review_service import bind_items_to_lines, merge_review_and_audit
 
 
 class DeepAuditMergeTest(unittest.TestCase):
@@ -81,6 +81,20 @@ class DeepAuditMergeTest(unittest.TestCase):
         }, {"file_changes": [{"filename": "package-lock.json"}]})
         self.assertEqual(final["final_risks"][0]["type"], "needs_human_check")
         self.assertEqual(final["final_risks"][0]["audit_status"], "downgraded")
+
+    def test_binds_risk_to_diff_line_by_evidence(self):
+        risks = [{
+            "file": "src/auth.ts",
+            "evidence": "const userId = req.body.userId",
+        }]
+        bind_items_to_lines(risks, [{
+            "filename": "src/auth.ts",
+            "parsed_lines": [
+                {"type": "context", "new_line_no": 9, "content": "export function login() {"},
+                {"type": "add", "new_line_no": 10, "content": "const userId = req.body.userId"},
+            ],
+        }])
+        self.assertEqual(risks[0]["line_start"], 10)
 
 
 if __name__ == "__main__":

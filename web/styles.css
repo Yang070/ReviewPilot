@@ -667,6 +667,161 @@ button:hover {
   margin-bottom: 0;
 }
 
+.diff-review-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 14px;
+  min-height: 640px;
+}
+
+.diff-sidebar {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.diff-toolbar,
+.risk-list-panel,
+.diff-file-header {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.diff-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.changed-files-nav,
+.risk-list-panel .stack {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.file-nav-item,
+.risk-jump-item {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+  min-height: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 10px;
+  text-align: left;
+}
+
+.file-nav-item.active {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
+
+.file-nav-item strong,
+.risk-jump-item strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.file-nav-item span,
+.file-nav-item small,
+.risk-jump-item small,
+.risk-list-panel p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diff-main {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.diff-viewer {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: auto;
+  background: #fff;
+}
+
+.diff-table {
+  min-width: 760px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 54px 54px 28px minmax(0, 1fr);
+  min-height: 28px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.diff-line code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 6px 10px;
+}
+
+.line-no,
+.line-mark {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #e4e7ec;
+  color: #667085;
+  user-select: none;
+}
+
+.diff-context {
+  background: #ffffff;
+}
+
+.diff-add {
+  background: #e6ffed;
+}
+
+.diff-delete {
+  background: #ffebe9;
+}
+
+.diff-line.has-risk {
+  box-shadow: inset 4px 0 0 var(--red);
+}
+
+.diff-line.has-rule {
+  box-shadow: inset 4px 0 0 #175cd3;
+}
+
+.diff-line.has-risk.has-rule {
+  box-shadow: inset 4px 0 0 var(--red), inset 8px 0 0 #175cd3;
+}
+
+.line-focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.inline-comment {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 16px 12px 140px;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+.risk-comment {
+  background: #fff8f7;
+  border-left: 4px solid var(--red);
+}
+
+.rule-comment {
+  background: #eff8ff;
+  border-left: 4px solid #175cd3;
+}
+
 .operation-status {
   border: 1px solid #84caff;
   border-radius: 8px;
@@ -909,6 +1064,7 @@ button:hover {
   .workbench-grid,
   .quick-model-form,
   .ask-input-row,
+  .diff-review-shell,
   .model-grid,
   .section-grid,
   .metrics {
@@ -928,5 +1084,9 @@ button:hover {
 
   .auth-copy h2 {
     font-size: 28px;
+  }
+
+  .inline-comment {
+    padding-left: 14px;
   }
 }

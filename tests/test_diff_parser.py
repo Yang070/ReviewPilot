@@ -1,6 +1,6 @@
 import unittest
 
-from reviewpilot.diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
+from reviewpilot.diff_parser import build_evidence, build_selected_context, parse_diff, summarize_file_diffs, summarize_files, summarize_priority_files
 from reviewpilot.review_service import build_context_coverage, build_messages, build_pr_overview
 from reviewpilot.rule_checker import run_rule_checks
 
@@ -142,6 +142,20 @@ diff --git a/package-lock.json b/package-lock.json
         self.assertEqual(overview["changed_files"], 2)
         self.assertEqual(overview["additions"], 5)
         self.assertEqual(overview["deletions"], 5)
+
+    def test_file_diffs_include_context_and_line_numbers(self):
+        diff = """diff --git a/src/a.py b/src/a.py
+--- a/src/a.py
++++ b/src/a.py
+@@ -1,2 +1,3 @@
+ def run():
++    print("ok")
+     return True
+"""
+        file_diff = summarize_file_diffs(parse_diff(diff))[0]
+        self.assertEqual(file_diff["parsed_lines"][0]["type"], "context")
+        self.assertEqual(file_diff["parsed_lines"][1]["type"], "add")
+        self.assertEqual(file_diff["parsed_lines"][1]["new_line_no"], 2)
 
 
 if __name__ == "__main__":
