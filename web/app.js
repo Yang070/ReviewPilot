@@ -189,6 +189,13 @@ const askSuggestions = [
   "\u5e2e\u6211\u751f\u6210\u4e00\u6bb5\u7b80\u77ed\u7684 PR Review \u603b\u7ed3\u3002",
 ];
 
+const fileAskSuggestions = [
+  "这个文件为什么被判为高风险？",
+  "这个文件最需要人工确认的地方是什么？",
+  "当前文件有没有测试覆盖不足？",
+  "这些提示哪些可以忽略？",
+];
+
 document.addEventListener("click", (event) => {
   const routeButton = event.target.closest("[data-route]");
   if (routeButton) {
@@ -1023,7 +1030,7 @@ function renderDiffReview(report, focusLine = 0) {
   })));
   const visibleFiles = files.filter(file => {
     if (onlyRiskFiles.checked && !file.risks.length) return false;
-    if (onlyHighRisk.checked && !file.risks.some(item => item.risk_level === "high")) return false;
+    if (onlyHighRisk.checked && !file.risks.some(item => ["high", "medium"].includes(item.risk_level))) return false;
     return true;
   });
   const firstFile = visibleFiles[0] || files[0];
@@ -1063,17 +1070,17 @@ function renderChangedFileNavItem(file) {
   const deep = isDeepAnalyzed(file.change, lastReport);
   return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
     <strong>${escapeHtml(file.filename)}</strong>
-    <span>${risk.label} · ${file.risks.length} 条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
+    <span>${risk.label} · ${score}分 · ${file.risks.length}条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
     <small>${statusText(file.status).label}</small>
   </button>`;
 }
 
 function renderLinkedRiskItem(risk) {
-  const line = risk.line_start ? `${risk.file}:${risk.line_start}` : `${risk.file}：文件级`;
+  const view = formatRiskForUser(risk);
   return `<button class="risk-jump-item" type="button" data-risk-jump="${escapeHtmlAttr(risk.id || "")}" data-risk-file="${escapeHtmlAttr(risk.file || "")}" data-risk-line="${risk.line_start || ""}">
     <span class="badge ${risk.risk_level}">${riskLevelText(risk.risk_level)}</span>
-    <strong>${escapeHtml(risk.issue || "风险项")}</strong>
-    <small>${escapeHtml(line)} · ${auditStatusText(risk.audit_status)}</small>
+    <strong>${escapeHtml(view.issueText)}</strong>
+    <small>${escapeHtml(view.locationLabel)} · ${escapeHtml(view.auditText)}</small>
   </button>`;
 }
 
@@ -1081,16 +1088,26 @@ function renderDiffFileHeader(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const reasons = (file.change.risk_reasons || []).join("；") || "普通变更文件";
+  const buttons = fileAskSuggestions.map(question =>
+    `<button class="copy-btn" type="button" data-ask-scope="review" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
+  ).join("");
   return `<div>
     <h3>${escapeHtml(file.filename)}</h3>
-    <p>${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions} · ${escapeHtml(reasons)}</p>
+    <p>${statusText(file.status).label} · ${risk.label} · ${score}分 · +${file.additions} / -${file.deletions}</p>
+    <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
+    <div class="inline-actions">${buttons}</div>
+    <details class="tech-details"><summary>查看技术细节</summary><p>${escapeHtml(reasons)}</p></details>
   </div>`;
 }
 
 function renderDiffLines(file, showRules, showAudit) {
   const risksByLine = groupByLine(file.risks);
   const rulesByLine = groupByLine(file.rules);
-  return `<div class="diff-table">${(file.parsed_lines || []).map(line => {
+  const fileLevel = [
+    ...file.risks.filter(item => !item.line_start).map(item => renderInlineRiskComment(item, showAudit, true)),
+    ...(showRules ? file.rules.filter(item => !item.line_start).map(item => renderInlineRuleMarker(item, true)) : []),
+  ].join("");
+  return `${fileLevel}<div class="diff-table">${(file.parsed_lines || []).map(line => {
     const newLine = line.new_line_no || "";
     const oldLine = line.old_line_no || "";
     const lineRisks = risksByLine.get(line.new_line_no) || [];
@@ -1109,26 +1126,39 @@ function renderDiffLines(file, showRules, showAudit) {
   }).join("")}</div>`;
 }
 
-function renderInlineRiskComment(risk, showAudit) {
+function renderInlineRiskComment(risk, showAudit, fileLevel = false) {
+  const view = formatRiskForUser(risk);
   return `<article class="inline-comment risk-comment">
     <div class="card-title">
-      <span>${riskLevelText(risk.risk_level)} · ${typeText(risk.type)}</span>
-      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(risk.suggestion || risk.issue || "")}">复制建议</button>
+      <span>${escapeHtml(view.title)}</span>
+      <div class="inline-actions">
+        <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(view.suggestionText)}">复制评论</button>
+        <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(risk.id || risk.file || "")}">追问这个问题</button>
+      </div>
     </div>
-    <p><strong>问题：</strong>${escapeHtml(risk.issue)}</p>
-    <p><strong>原因：</strong>${escapeHtml(risk.reason)}</p>
-    <p><strong>建议：</strong>${escapeHtml(risk.suggestion)}</p>
-    <p><strong>置信度：</strong>${confidenceLabel(risk.final_confidence ?? risk.confidence)}；<strong>审计结果：</strong>${auditStatusText(risk.audit_status)}</p>
-    ${showAudit && risk.audit_note ? `<p class="explain-note">${escapeHtml(risk.audit_note)}</p>` : ""}
+    ${fileLevel ? `<p class="explain-note">这条提示暂时无法定位到具体行，建议结合当前文件整体改动查看。</p>` : ""}
+    <p><strong>位置：</strong>${escapeHtml(view.locationLabel)}</p>
+    <p><strong>问题：</strong>${escapeHtml(view.issueText)}</p>
+    <p><strong>为什么要看：</strong>${escapeHtml(view.whyItMatters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
+    <p><strong>依据：</strong>${escapeHtml(view.evidenceText)}</p>
+    ${showAudit ? `<p class="audit-note"><strong>审计说明：</strong>${escapeHtml(view.auditText)}</p>` : ""}
   </article>`;
 }
 
-function renderInlineRuleMarker(rule) {
+function renderInlineRuleMarker(rule, fileLevel = false) {
+  const view = formatRuleFindingForUser(rule);
   return `<article class="inline-comment rule-comment">
-    <div class="card-title"><span>规则预检 · ${escapeHtml(rule.status || "待 AI 判断")}</span></div>
-    <p><strong>命中原因：</strong>${escapeHtml(rule.reason || rule.issue || "")}</p>
-    <p><strong>证据：</strong>${escapeHtml(rule.evidence || "")}</p>
-    <p><strong>建议：</strong>${escapeHtml(rule.suggestion || "")}</p>
+    <div class="card-title">
+      <span>${escapeHtml(view.title)} · ${escapeHtml(view.statusLabel)}</span>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(rule.rule_id || rule.file || "")}">追问这个问题</button>
+    </div>
+    ${fileLevel ? `<p class="explain-note">这条规则预检暂时无法定位到具体行，建议结合当前文件整体改动查看。</p>` : ""}
+    <p><strong>位置：</strong>${escapeHtml(view.locationLabel)}</p>
+    <p><strong>发现：</strong>${escapeHtml(view.findingText)}</p>
+    <p><strong>为什么值得关注：</strong>${escapeHtml(view.whyItMatters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
+    <p><strong>AI 结论：</strong>${escapeHtml(view.aiConclusionText)}</p>
   </article>`;
 }
 
@@ -1182,7 +1212,7 @@ function renderFile(file) {
   const risk = riskScoreText(score);
   const reasons = (file.risk_reasons || []).join("；") || "普通变更文件";
   const lowRiskNote = score < 40
-    ? `<p class="explain-note">该文件变更规模较小或不属于核心业务代码，因此未进入深度分析。</p>`
+    ? `<p class="explain-note">这个文件不是核心业务代码，且改动较小，因此系统只做了基础检查。</p>`
     : "";
   return `<article class="card">
     <div class="card-title">
@@ -1190,12 +1220,13 @@ function renderFile(file) {
       <span class="badge ${risk.className}">${risk.label}</span>
     </div>
     <div class="risk-meter"><span style="width:${score}%"></span></div>
-    <p><strong>${escapeHtml(categoryText(file.category))}</strong>，${lineChangeText(additions, deletions)}，${hunkText(hunks)}。</p>
-    <p>风险判断：${risk.label}，风险分 ${score}。状态：${status.label}。</p>
-    <p>判断原因：${escapeHtml(reasons)}</p>
+    <p><strong>文件：</strong>${escapeHtml(path)}</p>
+    <p><strong>状态：</strong>${status.label}；<strong>改动规模：</strong>${lineChangeText(additions, deletions)}</p>
+    <p><strong>系统判断：</strong>${risk.label}，${score} 分。</p>
+    <p><strong>为什么重点关注：</strong>${escapeHtml(fileFocusText(file, reasons))}</p>
     ${lowRiskNote}
     <details class="tech-details">
-      <summary>查看原始技术字段</summary>
+      <summary>查看技术细节</summary>
       <p>category: ${escapeHtml(file.category || "general")}；risk_score: ${score}；additions: ${additions}；deletions: ${deletions}；hunks: ${hunks}</p>
     </details>
   </article>`;
@@ -1216,16 +1247,18 @@ function renderPriorityFile(file) {
 }
 
 function renderRuleFinding(item) {
+  const view = formatRuleFindingForUser(item);
   return `<article class="card">
     <div class="card-title">
-      <span>${escapeHtml(item.rule_name || "规则预检")}</span>
-      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(item.status || "待 AI 判断")}</span>
+      <span>${escapeHtml(view.title)}</span>
+      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span>
     </div>
-    <p><strong>影响文件：</strong>${escapeHtml(item.file || "全局")}</p>
-    <p><strong>命中原因：</strong>${escapeHtml(item.reason || item.issue || "")}</p>
-    <p><strong>风险等级：</strong>${escapeHtml(riskLevelText(item.risk_level || "medium"))}</p>
-    <p><strong>证据：</strong>${escapeHtml(item.evidence || "")}</p>
-    <p><strong>建议：</strong>${escapeHtml(item.suggestion || "")}</p>
+    <p><strong>位置：</strong>${escapeHtml(view.locationLabel)}</p>
+    <p><strong>发现：</strong>${escapeHtml(view.findingText)}</p>
+    <p><strong>为什么值得关注：</strong>${escapeHtml(view.whyItMatters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
+    <p><strong>AI 结论：</strong>${escapeHtml(view.aiConclusionText)}</p>
+    <div class="inline-actions"><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.rule_id || item.file || "")}">追问这个问题</button></div>
   </article>`;
 }
 
@@ -1280,15 +1313,15 @@ function renderAuditorResult(auditor) {
 }
 
 function renderFinalRisk(item) {
+  const view = formatRiskForUser(item);
   return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${escapeHtml(typeText(item.type))}</span><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">\u8ffd\u95ee</button></div>
-    <p><strong>风险等级：</strong>${escapeHtml(riskLevelText(item.risk_level))}；<strong>审计状态：</strong>${escapeHtml(auditStatusText(item.audit_status))}</p>
-    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
-    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
-    <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
+    <div class="card-title"><span>${escapeHtml(view.locationLabel)}</span><span class="badge ${item.risk_level}">${escapeHtml(view.title)}</span><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">追问这个问题</button></div>
+    <p><strong>问题：</strong>${escapeHtml(view.issueText)}</p>
+    <p><strong>为什么要看：</strong>${escapeHtml(view.whyItMatters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
+    <p><strong>依据：</strong>${escapeHtml(view.evidenceText)}</p>
     <p><strong>初审模型置信度：</strong>${confidenceLabel(item.reviewer_confidence)}；<strong>审计模型置信度：</strong>${confidenceLabel(item.auditor_confidence)}；<strong>最终置信度：</strong>${confidenceLabel(item.final_confidence)}</p>
-    <p><strong>审计说明：</strong>${escapeHtml(item.audit_note || "")}</p>
+    <p><strong>审计说明：</strong>${escapeHtml(view.auditText)}</p>
   </article>`;
 }
 
@@ -1303,35 +1336,131 @@ function renderModule(item) {
 }
 
 function renderRisk(item) {
+  const view = formatRiskForUser(item);
   return `<article class="card">
     <div class="card-title">
-      <span>${escapeHtml(item.file)}</span>
-      <span class="badge ${item.risk_level}">${item.risk_level}</span>
-      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">\u8ffd\u95ee</button>
+      <span>${escapeHtml(view.locationLabel)}</span>
+      <span class="badge ${item.risk_level}">${escapeHtml(view.title)}</span>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">追问这个问题</button>
     </div>
-    <p><strong>类型：</strong>${escapeHtml(typeText(item.type))}</p>
-    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
-    <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
-    <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
+    <p><strong>问题：</strong>${escapeHtml(view.issueText)}</p>
+    <p><strong>为什么要看：</strong>${escapeHtml(view.whyItMatters)}</p>
+    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
+    <p><strong>依据：</strong>${escapeHtml(view.evidenceText)}</p>
     <p><strong>置信度：</strong>${confidenceLabel(item.confidence)}</p>
   </article>`;
 }
 
 function renderComment(item) {
   const file = item.file ? `<p><strong>文件：</strong>${escapeHtml(item.file)}</p>` : "";
+  const comment = rewriteReviewComment(item.comment || "");
   return `<article class="card">
     <div class="card-title">
       <span>${escapeHtml(typeText(item.type))}</span>
-      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.comment)}">复制</button>
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(comment)}">复制</button>
     </div>
     ${file}
-    <p>${escapeHtml(item.comment)}</p>
+    <p>${escapeHtml(comment)}</p>
   </article>`;
 }
 
 function renderLimitation(item) {
   return `<article class="card compact-card"><p>${escapeHtml(item)}</p></article>`;
+}
+
+function formatRuleFindingForUser(ruleFinding) {
+  const title = ruleFinding.rule_name || "规则预检";
+  return {
+    title,
+    statusLabel: ruleStatusText(ruleFinding.status),
+    locationLabel: locationLabel(ruleFinding),
+    findingText: naturalRuleFindingText(ruleFinding),
+    whyItMatters: ruleWhyItMatters(ruleFinding),
+    suggestionText: ruleFinding.suggestion || "请结合当前文件改动确认这个提示是否成立。",
+    aiConclusionText: ruleAiConclusionText(ruleFinding),
+  };
+}
+
+function formatRiskForUser(risk) {
+  return {
+    title: `${riskLevelText(risk.risk_level)} · ${typeText(risk.type)}`,
+    locationLabel: locationLabel(risk),
+    issueText: risk.issue || "这处改动可能需要进一步确认。",
+    whyItMatters: risk.reason || "这处改动可能影响功能行为、异常路径或后续维护，需要结合完整上下文确认。",
+    suggestionText: risk.suggestion || "建议人工 Reviewer 结合完整代码上下文复核，并补充必要测试。",
+    evidenceText: risk.evidence || "当前报告没有给出可定位到具体行的依据。",
+    auditText: risk.audit_note || auditStatusText(risk.audit_status),
+  };
+}
+
+function locationLabel(item) {
+  const file = item.file || "当前文件";
+  if (item.line_start && item.line_end && item.line_start !== item.line_end) return `${file}:${item.line_start}-${item.line_end}`;
+  if (item.line_start) return `${file}:${item.line_start}`;
+  return `${file}：文件级提示`;
+}
+
+function naturalRuleFindingText(item) {
+  const name = `${item.rule_name || ""} ${item.issue || ""}`.toLowerCase();
+  if (name.includes("router") || name.includes("路由")) {
+    return `系统发现本次改动新增了路由配置，但没有在当前 diff 中看到 404 / NotFound / path="*" 这类兜底路由。`;
+  }
+  if (name.includes("async") || name.includes("await") || name.includes("异步")) {
+    return "系统发现这里新增了异步调用，但当前改动里没有看到对应的失败处理。";
+  }
+  if (name.includes("表单") || name.includes("form")) {
+    return "系统发现这里新增了表单提交逻辑，但当前改动里没有看到明显的必填校验或错误提示。";
+  }
+  if (name.includes("context") || name.includes("provider")) {
+    return "系统发现这里新增或调整了 Context / Provider，建议确认入口组件是否已经正确包裹。";
+  }
+  if (name.includes("删除") || name.includes("重命名") || name.includes("renamed")) {
+    return "系统发现这个文件被删除或重命名，建议确认相关 import、路由和测试引用是否同步更新。";
+  }
+  if (name.includes("package") || name.includes("lock")) {
+    return "系统发现依赖配置发生变化，建议确认 lock 文件是否同步更新，避免安装结果不一致。";
+  }
+  return item.issue || "系统发现这处改动符合一条预检规则，建议多看一眼。";
+}
+
+function ruleWhyItMatters(item) {
+  const name = `${item.rule_name || ""} ${item.issue || ""}`.toLowerCase();
+  if (name.includes("router") || name.includes("路由")) return "如果用户访问不存在的路径，页面可能没有明确的错误提示或跳转逻辑。";
+  if (name.includes("async") || name.includes("await") || name.includes("异步")) return "失败路径如果没有被处理，用户可能看不到错误反馈，状态也可能停留在不一致的状态。";
+  if (name.includes("表单") || name.includes("form")) return "缺少输入校验时，用户可能提交无效数据，后续接口或页面状态会更难处理。";
+  if (name.includes("context") || name.includes("provider")) return "Provider 包裹关系不正确时，子组件可能读取不到上下文，导致运行时异常或状态丢失。";
+  if (name.includes("删除") || name.includes("重命名") || name.includes("renamed")) return "引用没有同步更新时，构建、路由加载或测试可能失败。";
+  if (name.includes("package") || name.includes("lock")) return "依赖声明和 lock 文件不一致时，不同环境安装出的依赖可能不一样。";
+  return "这类改动通常会影响运行路径或维护成本，提前确认能减少后续返工。";
+}
+
+function ruleAiConclusionText(item) {
+  const status = ruleStatusText(item.status);
+  if (status === "已采纳为风险") return "AI 已把这条预检采纳为需要关注的风险。";
+  if (status === "需要人工确认") return "AI 认为当前证据还不够完整，因此建议人工确认。";
+  if (status === "已忽略") return "AI 没有把这条预检作为主要风险，但你仍可结合上下文快速确认。";
+  if (status === "已作为疑似误报移除") return "审计后认为该提示证据不足，已作为疑似误报移除。";
+  return "等待 AI 结合 diff 证据进一步判断。";
+}
+
+function fileFocusText(file, fallback) {
+  const path = (file.filename || file.path || "").toLowerCase();
+  const changed = Number(file.additions || 0) + Number(file.deletions || 0);
+  const points = [];
+  if (path.includes("app.") || path.includes("main.") || path.includes("index.")) points.push("这是入口或核心渲染相关文件，改动可能影响页面加载和路由结构");
+  if (path.includes("router") || path.includes("route")) points.push("该文件涉及路由结构，建议确认未知路径和权限跳转");
+  if (path.includes("store") || path.includes("context") || path.includes("provider")) points.push("该文件涉及状态或上下文，建议确认组件包裹关系和状态流转");
+  if (changed >= 80) points.push("本次新增和删除较多，属于结构性修改");
+  if (!points.length) points.push(fallback || "该文件存在代码变更，建议结合 diff 快速确认影响范围");
+  return points.join("；") + "。";
+}
+
+function rewriteReviewComment(comment) {
+  if (!comment) return "";
+  if (comment.includes("path=\"*\"") || comment.includes("NotFound") || comment.includes("兜底")) {
+    return "这里新增了路由配置，建议确认是否已有 404 / NotFound 兜底页面。如果项目目前没有统一兜底路由，可以考虑补充 path=\"*\"，避免未知路径访问时没有明确反馈。";
+  }
+  return comment;
 }
 
 function buildMarkdownReport(data) {
@@ -1554,7 +1683,7 @@ function typeText(type) {
     maintainability: "可维护性",
     question: "需要确认",
     needs_human_check: "需要人工复核",
-    confirmed_issue: "明确问题",
+    confirmed_issue: "高可信风险",
     potential_risk: "潜在风险",
     praise: "正向反馈",
     follow_up: "后续建议",
@@ -1565,12 +1694,28 @@ function typeText(type) {
 function auditStatusText(status) {
   const map = {
     accepted: "审计通过",
-    downgraded: "已降级为待人工确认",
-    added_by_auditor: "审计模型补充的可能漏检项",
-    removed: "已作为可能误检移除",
+    downgraded: "已降级为待确认",
+    added_by_auditor: "审计补充的可能遗漏项",
+    removed: "已作为疑似误报移除",
     needs_human_check: "需要人工复核",
   };
   return map[status] || "需要人工复核";
+}
+
+function ruleStatusText(status) {
+  const normalized = String(status || "").trim();
+  const map = {
+    pending_ai_review: "等待 AI 判断",
+    accepted: "已采纳为风险",
+    downgraded: "需要人工确认",
+    ignored: "已忽略",
+    removed: "已作为疑似误报移除",
+    "待 AI 判断": "等待 AI 判断",
+    "已采纳为风险": "已采纳为风险",
+    "已降级为待确认": "需要人工确认",
+    "已忽略": "已忽略",
+  };
+  return map[normalized] || normalized || "等待 AI 判断";
 }
 
 function auditActionText(action) {

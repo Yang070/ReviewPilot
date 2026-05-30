@@ -252,10 +252,11 @@
               <button data-report-tab="overview" type="button">概览</button>
               <button data-report-tab="files" type="button">文件</button>
               <button data-report-tab="rules" type="button">规则预检</button>
-              <button data-report-tab="risks" type="button">风险</button>
+              <button data-report-tab="risks" type="button">风险批注</button>
               <button data-report-tab="audit" type="button">深度审计</button>
-              <button data-report-tab="comments" type="button">建议</button>
+              <button data-report-tab="comments" type="button">Review 建议</button>
               <button data-report-tab="limits" type="button">限制</button>
+              <button data-report-tab="ask" type="button">Ask PR</button>
             </div>
 
             <div class="report-pane" data-report-panel="code">
@@ -271,7 +272,7 @@
                       </select>
                     </label>
                     <label class="check-row"><input id="onlyRiskFiles" type="checkbox"> 只看有风险</label>
-                    <label class="check-row"><input id="onlyHighRisk" type="checkbox"> 只看高风险</label>
+                    <label class="check-row"><input id="onlyHighRisk" type="checkbox"> 只看中高风险</label>
                     <label class="check-row"><input id="showRuleMarkers" type="checkbox" checked> 显示规则预检</label>
                     <label class="check-row"><input id="showAuditNotes" type="checkbox" checked> 显示审计说明</label>
                   </div>
@@ -324,24 +325,26 @@
             <div class="report-pane hidden" data-report-panel="limits">
               <section class="result-section"><h3>AI 分析限制</h3><div id="limitations" class="stack"></div></section>
             </div>
-            <section id="reviewAskPanel" class="result-section ask-panel hidden">
-              <div class="section-head">
-                <div>
-                  <h3>Ask PR 交互追问</h3>
-                  <p>围绕当前 Review 报告继续提问，不会重新抓取 PR，也不会修改原始报告。</p>
+            <div class="report-pane hidden" data-report-panel="ask">
+              <section id="reviewAskPanel" class="result-section ask-panel hidden">
+                <div class="section-head">
+                  <div>
+                    <h3>Ask PR 交互追问</h3>
+                    <p>围绕当前 Review 报告继续提问，不会重新抓取 PR，也不会修改原始报告。</p>
+                  </div>
+                  <label class="field inline-field">
+                    <span>回答模型</span>
+                    <select id="reviewAskModelSelect"></select>
+                  </label>
                 </div>
-                <label class="field inline-field">
-                  <span>回答模型</span>
-                  <select id="reviewAskModelSelect"></select>
-                </label>
-              </div>
-              <div id="reviewAskSuggestions" class="suggestion-row"></div>
-              <div class="ask-input-row">
-                <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="例如：这个 PR 最需要人工复核哪里？"></textarea>
-                <button id="reviewAskSendBtn" class="primary" type="button">发送追问</button>
-              </div>
-              <div id="reviewAskThreads" class="ask-thread-list"></div>
-            </section>
+                <div id="reviewAskSuggestions" class="suggestion-row"></div>
+                <div class="ask-input-row">
+                  <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="例如：这个 PR 最需要人工复核哪里？"></textarea>
+                  <button id="reviewAskSendBtn" class="primary" type="button">发送追问</button>
+                </div>
+                <div id="reviewAskThreads" class="ask-thread-list"></div>
+              </section>
+            </div>
           </div>
         </section>
       </section>
