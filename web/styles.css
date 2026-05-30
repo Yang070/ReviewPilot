@@ -2794,3 +2794,225 @@ button:hover {
   left: auto;
   width: 180px;
 }
+
+/* Global overflow and readability guards */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  min-width: 0;
+}
+
+.layout,
+.workspace,
+.page-panel,
+.report-panel,
+.report-pane,
+.summary-layout,
+.settings-grid,
+.history-container,
+.history-layout,
+.result-section,
+.card,
+.list-item,
+.compact-row,
+.table-row,
+.message-box,
+.progress-dialog {
+  max-width: 100%;
+}
+
+.table-main,
+.card p,
+.list-item p,
+.compact-row span,
+.table-row span,
+.message-content,
+.drawer-block,
+.history-summary,
+.markdown-preview,
+.precheck-help {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.data-table,
+.compact-list,
+.markdown-preview {
+  overflow-x: auto;
+}
+
+.settings-grid,
+.history-filters,
+.input-panel,
+.review-toolbar {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+select,
+input,
+textarea {
+  max-width: 100%;
+}
+
+.message-content {
+  display: grid;
+  gap: 10px;
+}
+
+.message-content p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.message-tech-details {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.message-tech-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-tech-details pre {
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #050b14;
+  color: #cbd5e1;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+/* Dark progress modal */
+.progress-modal {
+  background:
+    radial-gradient(circle at 50% 28%, rgba(124, 58, 237, 0.2), transparent 34%),
+    rgba(2, 6, 14, 0.74);
+  backdrop-filter: blur(6px);
+}
+
+.progress-dialog {
+  width: min(480px, calc(100vw - 48px));
+  border-color: #1d2b3f;
+  background: #0b1524;
+  color: #e6edf7;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+}
+
+.progress-dialog h2 {
+  color: #e6edf7;
+}
+
+.progress-dialog p {
+  color: #8ea0b8;
+}
+
+.progress-percent strong {
+  color: #e6edf7;
+  font-size: 20px;
+}
+
+.progress-track {
+  background: #1d2b3f;
+}
+
+.progress-track span {
+  background: linear-gradient(90deg, #2563eb, #7c3aed);
+  transition: width 0.42s ease;
+}
+
+.progress-stages li {
+  color: #64748b;
+}
+
+.progress-stages li strong {
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.progress-stages li.done {
+  color: #22c55e;
+}
+
+.progress-stages li.running {
+  color: #60a5fa;
+}
+
+.progress-stages li.failed {
+  color: #ef4444;
+}
+
+.progress-stages li small {
+  color: inherit;
+  opacity: 0.82;
+}
+
+/* Dense audit/rule rows should not overlap */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 132px;
+  height: auto;
+  min-height: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.rule-finding-row,
+.audit-row {
+  grid-template-columns: minmax(180px, 0.9fr) minmax(150px, 0.8fr) minmax(96px, max-content) minmax(240px, 1.8fr);
+  align-items: start;
+}
+
+.rule-finding-row > span,
+.audit-row > span {
+  min-height: 28px;
+  line-height: 1.5;
+}
+
+.rule-finding-row > span:nth-child(3),
+.audit-row > span:nth-child(2) {
+  justify-self: end;
+}
+
+.audit-metrics span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .history-filters,
+  .input-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .review-toolbar {
+    grid-template-columns: minmax(220px, 1fr) auto;
+  }
+
+  .rule-finding-row,
+  .audit-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-finding-row > span:nth-child(3),
+  .audit-row > span:nth-child(2) {
+    justify-self: start;
+  }
+}

@@ -49,6 +49,7 @@ const quickTestModelBtn = document.querySelector("#quickTestModelBtn");
 const emptyReport = document.querySelector("#emptyReport");
 const reportContent = document.querySelector("#reportContent");
 const progressModal = document.querySelector("#progressModal");
+const progressModalTitle = document.querySelector("#progressModalTitle");
 const progressModalText = document.querySelector("#progressModalText");
 const progressPercent = document.querySelector("#progressPercent");
 const progressStages = document.querySelector("#progressStages");
@@ -175,6 +176,7 @@ let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
 let progressTimer = null;
 let progressState = null;
+let progressStepIndex = 0;
 let activeInputTab = "url";
 let activeDiffFile = "";
 let expandedAnnotations = new Set();
@@ -381,7 +383,7 @@ reviewBtn.addEventListener("click", async () => {
     finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
   } catch (err) {
     stopProgress();
-    showError(`${err.message} 如模型调用失败，请切换模型配置，或检查 API Key、Provider 和模型名称。`);
+    showError(err);
   } finally {
     reviewBtn.disabled = false;
   }
@@ -407,7 +409,7 @@ modelForm.addEventListener("submit", async (event) => {
     await loadModelConfigs();
     showNotice("保存成功", "模型配置已更新。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -418,7 +420,7 @@ testModelBtn.addEventListener("click", async () => {
     const data = await apiFetch("/api/model-configs/test", {method: "POST", body: JSON.stringify(payload)});
     showNotice("连接测试", data.message || "连接测试成功。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -448,7 +450,7 @@ quickModelForm.addEventListener("submit", async (event) => {
     await loadModelConfigs();
     showNotice("保存成功", "API 和模型名称已保存到模型配置，可以直接开始评审。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -460,7 +462,7 @@ quickTestModelBtn.addEventListener("click", async () => {
     });
     showNotice("连接测试", data.message || "连接测试成功。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -517,7 +519,7 @@ ruleForm.addEventListener("submit", async (event) => {
     await loadRules();
     showNotice("保存成功", "规则已更新。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -543,7 +545,7 @@ ruleList.addEventListener("click", async (event) => {
       await loadRules();
     }
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -555,7 +557,7 @@ ruleTemplateList.addEventListener("click", async (event) => {
     await loadRules();
     showNotice("复制成功", "规则模板已复制到当前规则列表。");
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -573,7 +575,7 @@ async function authRequest(path, payload) {
       showNotice("需要配置模型", "请在工作台顶部输入 API Key 和模型名称，保存后即可开始评审。");
     }
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 }
 
@@ -789,7 +791,7 @@ modelConfigList.addEventListener("click", async (event) => {
       await loadModelConfigs();
     }
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -1002,7 +1004,7 @@ historyList.addEventListener("click", async (event) => {
       await loadHistory();
     }
   } catch (err) {
-    showError(err.message);
+    showError(err);
   }
 });
 
@@ -1268,7 +1270,7 @@ async function sendAsk(scope) {
     }
     refs.question.value = "";
   } catch (err) {
-    showError(`${err.message} 如果模型调用失败，请切换模型配置或检查 API 额度。`);
+    showError(err);
   } finally {
     refs.sendBtn.disabled = false;
   }
@@ -1935,7 +1937,7 @@ function renderPriorityFile(file) {
 
 function renderRuleFinding(item) {
   const view = formatRuleFindingForUser(item);
-  return `<div class="compact-row">
+  return `<div class="compact-row rule-finding-row">
     <span class="table-main">${escapeHtml(view.title)}</span>
     <span>${escapeHtml(view.locationLabel)}</span>
     <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span></span>
@@ -2026,9 +2028,9 @@ function renderAuditorResult(auditor) {
 function renderAuditRows(items, mapper) {
   return `<div class="compact-list">${items.map(item => {
     const [main, state, confidence, detail] = mapper(item);
-    return `<div class="compact-row">
+    return `<div class="compact-row audit-row">
       <span class="table-main">${escapeHtml(main)}</span>
-      <span>${escapeHtml(state)}</span>
+      <span><span class="badge info">${escapeHtml(state)}</span></span>
       <span>${escapeHtml(confidence)}</span>
       <span>${escapeHtml(detail)}</span>
     </div>`;
@@ -2298,7 +2300,7 @@ async function rawFetch(path, options = {}) {
       headers: {"Content-Type": "application/json", ...(options.headers || {})},
     });
   } catch {
-    throw new Error("无法连接本地服务，请确认已经运行 python server.py。");
+    throw createApiError("无法连接本地服务，请确认已经运行 python server.py。", {status: 0});
   }
   const contentType = res.headers.get("Content-Type") || "";
   const text = await res.text();
@@ -2307,28 +2309,46 @@ async function rawFetch(path, options = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error("服务返回的 JSON 格式不正确，请重启服务后重试。");
+      throw createApiError("服务返回的 JSON 格式不正确，请重启服务后重试。", {status: res.status, technicalDetail: text});
     }
   } else if (text && text.trim().startsWith("<!")) {
-    throw new Error("服务返回了网页而不是接口数据。通常是后端服务没有重启，或当前页面仍连接到旧版本服务。");
+    throw createApiError("服务返回了网页而不是接口数据。通常是后端服务没有重启，或当前页面仍连接到旧版本服务。", {status: res.status, technicalDetail: text.slice(0, 500)});
   } else if (text) {
-    throw new Error(text.slice(0, 160));
+    throw createApiError(text.slice(0, 160), {status: res.status, technicalDetail: text});
   }
-  if (!res.ok || data.error) throw new Error(data.error || `请求失败，状态码 ${res.status}`);
+  if (!res.ok || data.error) throw createApiError(data.error || `请求失败，状态码 ${res.status}`, {status: res.status, technicalDetail: data.error || text});
   return data;
+}
+
+function createApiError(message, meta = {}) {
+  const error = new Error(message || "请求失败");
+  error.status = meta.status;
+  error.technicalDetail = meta.technicalDetail || message || "";
+  return error;
 }
 
 function startProgress(title, text) {
   reportContent.classList.remove("hidden");
   emptyReport.classList.add("hidden");
+  if (progressModalTitle) progressModalTitle.textContent = "正在分析 PR";
   progressModal.classList.remove("hidden");
-  progressModalText.textContent = text || "系统正在获取代码变更、执行规则预检，并生成 AI Review 报告。";
+  progressModalText.textContent = text || "当前阶段：准备分析";
   clearInterval(progressTimer);
+  progressStepIndex = 0;
   setProgressState({task_id: "", progress: 10, current_stage: "fetch_pr"});
   progressTimer = setInterval(() => {
-    const next = Math.min(85, (progressState?.progress || 10) + 15);
-    setProgressState({progress: next, current_stage: progressStageForPercent(next)});
-  }, 1000);
+    const steps = [
+      {progress: 25, stage: "parse_diff"},
+      {progress: 40, stage: "rank_files"},
+      {progress: 55, stage: "rule_check"},
+      {progress: 70, stage: "reviewer"},
+      {progress: 85, stage: "auditor"},
+    ];
+    const next = steps[progressStepIndex];
+    if (!next) return;
+    progressStepIndex += 1;
+    setProgressState({progress: next.progress, current_stage: next.stage});
+  }, 1200);
 }
 
 function updateProgress(value, text) {
@@ -2382,6 +2402,8 @@ function setProgressState(partial) {
 
 function renderProgressModal() {
   const progress = Math.max(0, Math.min(100, Number(progressState?.progress || 0)));
+  const current = reviewProgressStages.find(stage => stage.key === progressState?.current_stage);
+  progressModalText.textContent = `当前阶段：${current?.label || "准备分析"}`;
   progressPercent.textContent = `${Math.round(progress)}%`;
   progressBar.style.width = `${progress}%`;
   progressStages.innerHTML = (progressState?.stages || []).map(stage => {
@@ -2404,16 +2426,43 @@ async function copyText(text, successText) {
   }
 }
 
-function showError(text) {
-  messageTitle.textContent = "操作失败";
-  messageText.textContent = text;
+function showError(error) {
+  const formatted = formatUserFriendlyError(error);
+  messageTitle.textContent = formatted.title;
+  messageText.innerHTML = `<p>${escapeHtml(formatted.message)}</p>${formatted.technicalDetail ? `<details class="message-tech-details"><summary>查看技术细节</summary><pre>${escapeHtml(formatted.technicalDetail)}</pre></details>` : ""}`;
   messageDialog.showModal();
 }
 
 function showNotice(title, text) {
   messageTitle.textContent = title;
-  messageText.textContent = text;
+  messageText.innerHTML = `<p>${escapeHtml(text)}</p>`;
   messageDialog.showModal();
+}
+
+function formatUserFriendlyError(error) {
+  const rawMessage = typeof error === "string" ? error : (error?.message || String(error || ""));
+  const status = Number(error?.status || rawMessage.match(/\b(400|401|403|429|500|502|503|504)\b/)?.[1] || 0);
+  const technicalDetail = String(error?.technicalDetail || rawMessage || "").slice(0, 1200);
+  const normalized = rawMessage.toLowerCase();
+  let message = rawMessage.slice(0, 180);
+  if (rawMessage.includes("账号") || rawMessage.includes("密码")) {
+    message = rawMessage;
+  } else if (status === 400) {
+    message = "模型服务返回 400，请优先检查模型名称和请求格式。";
+  } else if (status === 401 || status === 403) {
+    message = "API Key 无效或没有权限。";
+  } else if (status === 429) {
+    message = "请求过于频繁或额度不足。";
+  } else if (normalized.includes("timeout") || rawMessage.includes("超时")) {
+    message = "请求超时，请稍后重试。";
+  } else if (normalized.includes("model") || rawMessage.includes("模型") || rawMessage.includes("api key") || rawMessage.includes("Base URL")) {
+    message = "模型调用失败，请检查 API Key、模型名称、Base URL 或额度是否可用。";
+  }
+  return {
+    title: "操作失败",
+    message,
+    technicalDetail: technicalDetail && technicalDetail !== message ? technicalDetail : "",
+  };
 }
 
 function statusText(status) {
