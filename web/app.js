@@ -1023,7 +1023,6 @@ function analysisModeText(value) {
     fast: "快速分析",
     "deep-audit": "深度审计",
     deep_audit: "深度审计",
-    compare: "多模型对比",
   };
   return map[value] || "快速分析";
 }
