@@ -1758,10 +1758,10 @@ small,
 }
 
 .workspace {
-  height: calc(100vh - 86px);
-  min-height: 704px;
+  height: calc(100vh - 30px);
+  min-height: 760px;
   gap: 12px;
-  margin-top: 56px;
+  margin-top: 0;
 }
 
 .workspace.has-report:not(.input-expanded) {
@@ -2881,6 +2881,46 @@ button:hover {
   margin: 0;
   color: var(--text);
   font-size: 15px;
+}
+
+/* Put account card in the sidebar footer slot and hide the old model footer. */
+.global-sidebar .sidebar-footer {
+  display: none;
+}
+
+.layout > .userbar {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 18px;
+  left: 14px;
+  z-index: 70;
+  width: calc(220px - 28px);
+  max-width: calc(220px - 28px);
+}
+
+.layout > .userbar .menu {
+  width: 100%;
+}
+
+.layout > .userbar #menuBtn.account-menu-button {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  min-height: 64px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(15, 27, 45, 0.78);
+  box-shadow: none;
+}
+
+.layout > .userbar .menu-list {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Global overflow and readability guards */
