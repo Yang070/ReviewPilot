@@ -540,7 +540,7 @@ async function buildReviewPayload() {
       reviewer_model_config_id: reviewerModelSelect.value,
       auditor_model_config_id: auditorModelSelect.value,
       rule_set_id: "default",
-      analysis_mode: "deep",
+      analysis_mode: "deep_audit",
     };
   }
   return {
@@ -1062,14 +1062,23 @@ function renderAuditReport(data) {
     return;
   }
   const reviewerRisks = data.reviewer_result?.risks || [];
+  const reviewerModules = data.reviewer_result?.changed_modules || [];
+  const reviewerComments = data.reviewer_result?.review_comments || [];
   const auditor = data.auditor_result || {};
   const finalRisks = data.final_result?.final_risks || [];
   const dismissed = data.final_result?.dismissed_risks || [];
-  reviewerResultBox.innerHTML = reviewerRisks.length ? reviewerRisks.map(renderReviewerRisk).join("") : empty("初审模型未输出风险。");
+  reviewerResultBox.innerHTML = [
+    `<article class="card"><p>${escapeHtml(data.reviewer_result?.summary || "初审模型没有返回摘要。")}</p></article>`,
+    reviewerModules.length ? `<h3>初审模块总结</h3>${reviewerModules.map(renderModule).join("")}` : empty("初审模型未输出模块总结。"),
+    reviewerRisks.length ? `<h3>初审风险</h3>${reviewerRisks.map(renderReviewerRisk).join("")}` : empty("初审模型未输出风险。"),
+    reviewerComments.length ? `<h3>初审 Review Comments</h3>${reviewerComments.map(renderComment).join("")}` : empty("初审模型未输出 Review Comment。"),
+  ].join("");
   auditorResultBox.innerHTML = renderAuditorResult(auditor);
   finalResultBox.innerHTML = [
-    finalRisks.length ? finalRisks.map(renderFinalRisk).join("") : empty("融合后未发现核心风险。"),
+    finalRisks.length ? `<h3>最终风险</h3>${finalRisks.map(renderFinalRisk).join("")}` : empty("融合后未发现核心风险。"),
     dismissed.length ? `<h3>被移除的误检候选</h3>${dismissed.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.issue)}</p><p>${escapeHtml(item.dismiss_reason)}</p></article>`).join("")}` : "",
+    (data.final_result?.review_comments || []).length ? `<h3>最终 Review Comments</h3>${data.final_result.review_comments.map(renderComment).join("")}` : "",
+    (data.final_result?.limitations || []).length ? `<h3>最终限制说明</h3>${data.final_result.limitations.map(renderLimitation).join("")}` : "",
   ].join("");
 }
 
@@ -1078,7 +1087,7 @@ function renderReviewerRisk(item) {
     <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${item.risk_level}</span></div>
     <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>初审置信度：</strong>${item.reviewer_confidence ?? item.confidence}%</p>
+    <p><strong>初审置信度：</strong>${confidenceLabel(item.reviewer_confidence ?? item.confidence)}</p>
   </article>`;
 }
 
@@ -1086,32 +1095,34 @@ function renderAuditorResult(auditor) {
   const falsePositives = auditor.false_positive_candidates || [];
   const missed = auditor.missed_risk_candidates || [];
   const adjustments = auditor.confidence_adjustments || [];
+  const notes = auditor.audit_notes || [];
   return `<article class="card"><p>${escapeHtml(auditor.audit_summary || "审计模型没有返回总结。")}</p></article>
-    <h3>可能误检项</h3>${falsePositives.length ? falsePositives.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.reason)}</p><p>动作：${escapeHtml(item.audit_action || "")}</p></article>`).join("") : empty("暂无可能误检项")}
+    <h3>可能误检项</h3>${falsePositives.length ? falsePositives.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.reason)}</p><p>动作：${escapeHtml(auditActionText(item.audit_action || ""))}；建议类型：${escapeHtml(typeText(item.suggested_type || ""))}；建议置信度：${confidenceLabel(item.suggested_confidence)}</p></article>`).join("") : empty("暂无可能误检项")}
     <h3>可能漏检项</h3>${missed.length ? missed.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.issue)}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无可能漏检项")}
-    <h3>置信度调整</h3>${adjustments.length ? adjustments.map(item => `<article class="card compact-card"><p>${escapeHtml(item.risk_id)}：${item.old_confidence} -> ${item.new_confidence}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无置信度调整")}`;
+    <h3>置信度调整</h3>${adjustments.length ? adjustments.map(item => `<article class="card compact-card"><p>${escapeHtml(item.risk_id)}：${item.old_confidence} -> ${item.new_confidence}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无置信度调整")}
+    <h3>审计说明</h3>${notes.length ? notes.map(renderLimitation).join("") : empty("暂无额外审计说明")}
+    <h3>最终审计建议</h3><article class="card compact-card"><p>${escapeHtml(auditor.final_recommendation || "暂无最终审计建议。")}</p></article>`;
 }
 
 function renderFinalRisk(item) {
-  const note = item.audit_status === "downgraded"
-    ? "已被审计模型降级为待人工确认"
-    : item.audit_status === "added_by_auditor"
-      ? "审计模型补充的可能漏检项"
-      : "审计后保留";
   return `<article class="card">
     <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${escapeHtml(typeText(item.type))}</span><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">\u8ffd\u95ee</button></div>
+    <p><strong>风险等级：</strong>${escapeHtml(riskLevelText(item.risk_level))}；<strong>审计状态：</strong>${escapeHtml(auditStatusText(item.audit_status))}</p>
     <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>初审模型置信度：</strong>${item.reviewer_confidence}%；<strong>审计模型置信度：</strong>${item.auditor_confidence}%；<strong>最终置信度：</strong>${item.final_confidence}%</p>
-    <p><strong>审计状态：</strong>${escapeHtml(item.audit_status)}；${note}</p>
+    <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
+    <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
+    <p><strong>初审模型置信度：</strong>${confidenceLabel(item.reviewer_confidence)}；<strong>审计模型置信度：</strong>${confidenceLabel(item.auditor_confidence)}；<strong>最终置信度：</strong>${confidenceLabel(item.final_confidence)}</p>
     <p><strong>审计说明：</strong>${escapeHtml(item.audit_note || "")}</p>
   </article>`;
 }
 
 function renderModule(item) {
+  const name = item.name || item.module || "未命名模块";
+  const summary = item.summary || item.change || "无总结";
   return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(item.name)}</span></div>
-    <p>${escapeHtml(item.summary || "无总结")}</p>
+    <div class="card-title"><span>${escapeHtml(name)}</span></div>
+    <p>${escapeHtml(summary)}</p>
     <p><strong>文件：</strong>${escapeHtml((item.files || []).join(", "))}</p>
   </article>`;
 }
@@ -1128,7 +1139,7 @@ function renderRisk(item) {
     <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
     <p><strong>原因：</strong>${escapeHtml(item.reason)}</p>
     <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
-    <p><strong>置信度：</strong>${Math.round(item.confidence * 100)}%</p>
+    <p><strong>置信度：</strong>${confidenceLabel(item.confidence)}</p>
   </article>`;
 }
 
@@ -1374,6 +1385,33 @@ function typeText(type) {
     follow_up: "后续建议",
   };
   return map[type] || "Review 建议";
+}
+
+function auditStatusText(status) {
+  const map = {
+    accepted: "审计通过",
+    downgraded: "已降级为待人工确认",
+    added_by_auditor: "审计模型补充的可能漏检项",
+    removed: "已作为可能误检移除",
+    needs_human_check: "需要人工复核",
+  };
+  return map[status] || "需要人工复核";
+}
+
+function auditActionText(action) {
+  const map = {
+    keep: "保留",
+    downgrade: "降级",
+    remove: "移除",
+    needs_human_check: "需要人工复核",
+  };
+  return map[action] || action || "未说明";
+}
+
+function confidenceLabel(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "未返回";
+  return `${Math.max(0, Math.min(100, Math.round(number <= 1 ? number * 100 : number)))}%`;
 }
 
 function formatTime(value) {

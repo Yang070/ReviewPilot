@@ -5,7 +5,9 @@ import re
 
 
 class QwenError(Exception):
-    pass
+    def __init__(self, message: str, raw_text: str = ""):
+        super().__init__(message)
+        self.raw_text = raw_text
 
 
 def call_qwen(messages: list[dict], api_key: str, model: str, base_url=None) -> dict:
@@ -101,4 +103,4 @@ def parse_json_content(content: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise QwenError("千问返回了非 JSON 格式的评审内容。") from exc
+        raise QwenError("模型返回了非 JSON 格式的内容。", text) from exc

@@ -643,3 +643,324 @@ def dedupe(items: list[str]) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+# Deep-audit v2 implementations. They intentionally reuse the same public
+# function names so /api/review and /api/review/deep-audit keep their API shape.
+def deep_audit_review(
+    pr_url: str,
+    diff_text: str,
+    reviewer_model_config: dict,
+    auditor_model_config: dict,
+    rules: list[dict] | None = None,
+) -> dict:
+    context = prepare_review_context(pr_url, diff_text, rules)
+    reviewer_key, reviewer_model, reviewer_base, reviewer_provider, reviewer_display = resolve_model(reviewer_model_config)
+    auditor_key, auditor_model, auditor_base, auditor_provider, auditor_display = resolve_model(auditor_model_config)
+
+    try:
+        reviewer_raw = call_chat_model(
+            build_reviewer_messages(context),
+            reviewer_key,
+            normalize_model(reviewer_model),
+            reviewer_base,
+            reviewer_provider,
+        )
+    except QwenError as exc:
+        raise ReviewError(f"初审模型调用失败，请检查模型配置或 API Key：{exc}") from exc
+
+    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"])
+    warning = ""
+    try:
+        auditor_result = call_chat_model(
+            build_auditor_messages(context, reviewer_result),
+            auditor_key,
+            normalize_model(auditor_model),
+            auditor_base,
+            auditor_provider,
+        )
+    except QwenError as exc:
+        raw_text = getattr(exc, "raw_text", "")
+        if raw_text:
+            warning = "审计结果解析失败，已保留初审结果。当前结果未经过有效二次校验。"
+            auditor_result = {
+                "audit_summary": warning,
+                "auditor_raw_text": raw_text[:4000],
+                "audit_notes": [warning],
+                "final_recommendation": "建议人工 Reviewer 结合完整 diff 复核初审结果。",
+            }
+        else:
+            warning = f"审计模型调用失败，当前结果未经过二次校验：{exc}"
+            auditor_result = {
+                "audit_summary": warning,
+                "audit_notes": [warning],
+                "final_recommendation": "建议人工 Reviewer 结合完整 diff 复核初审结果。",
+            }
+
+    final_result = merge_review_and_audit(reviewer_result, auditor_result, context)
+    if warning:
+        final_result["limitations"].append(warning)
+
+    return {
+        "review_mode": "deep_audit",
+        "pr": {"title": context["pr_overview"]["title"], "url": context["pr_overview"].get("url", "")},
+        "summary": final_result["summary"],
+        "riskLevel": max_risk_level(final_result["final_risks"]),
+        "model": f"初审：{reviewer_display}；审计：{auditor_display}",
+        "pr_overview": context["pr_overview"],
+        "file_changes": context["file_changes"],
+        "files": context["file_changes"],
+        "priority_files": context["priority_files"],
+        "risk_ranking": context["priority_files"],
+        "context_coverage": context["context_coverage"],
+        "rule_findings": update_rule_statuses(context["rule_findings"], final_result["final_risks"]),
+        "reviewer_result": reviewer_result,
+        "auditor_result": auditor_result,
+        "final_result": final_result,
+        "changed_modules": final_result["changed_modules"],
+        "risks": final_result["final_risks"],
+        "findings": final_result["final_risks"],
+        "review_comments": final_result["review_comments"],
+        "overall_score": 80,
+        "limitations": final_result["limitations"],
+        "warning": warning,
+        "context_truncated": context["context_coverage"]["context_truncated"],
+    }
+
+
+def build_reviewer_messages(context: dict) -> list[dict]:
+    system = (
+        "你是 ReviewPilot 的 Reviewer Model，负责生成初步 PR Review。"
+        "只能基于提供的 diff、rule_findings、PR 上下文和文件风险排序判断。"
+        "每条风险必须有 evidence；不确定的问题标记为 needs_human_check；"
+        "不要为了凑数量输出泛泛建议；不要基于过时模型知识判断第三方依赖版本状态；"
+        "不要把 package-lock.json、yarn.lock、pnpm-lock.yaml 作为主要风险来源。"
+        "如果没有明确风险，可以返回空 risks。只返回中文 JSON。"
+    )
+    user = {
+        "task": "生成初步 PR Review，输出 summary、changed_modules、risks、review_comments。",
+        "pr_overview": context["pr_overview"],
+        "file_changes": context["file_changes"],
+        "priority_files": context["priority_files"],
+        "context_coverage": context["context_coverage"],
+        "selected_diff": context["selected_context"],
+        "rule_findings": context["rule_findings"],
+        "schema": {
+            "summary": "PR 总结",
+            "changed_modules": [{
+                "module": "模块名称",
+                "files": ["相关文件"],
+                "change": "变更说明",
+            }],
+            "risks": [{
+                "id": "risk_1",
+                "file": "文件路径",
+                "risk_level": "high | medium | low",
+                "type": "confirmed_issue | potential_risk | needs_human_check",
+                "evidence": "diff 中可见的证据",
+                "issue": "问题描述",
+                "reason": "为什么这是风险",
+                "suggestion": "修改建议",
+                "confidence": "0-100",
+                "source": "reviewer_model",
+            }],
+            "review_comments": [{
+                "file": "文件路径",
+                "comment": "可复制到 PR 的 Review Comment",
+            }],
+        },
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False, separators=(",", ":"))},
+    ]
+
+
+def build_auditor_messages(context: dict, reviewer_result: dict) -> list[dict]:
+    system = (
+        "你是 ReviewPilot 的 Auditor Model。你不是绝对裁判，也可能出错。"
+        "你不重新生成完整 Review，只审计 Reviewer Model 的输出质量。"
+        "检查误检、漏检、证据不足、过度推断、过时依赖判断、lock 文件过度关注、"
+        "规则预检遗漏、高风险文件遗漏、风险等级和 confidence 是否合理。"
+        "缺乏证据的问题建议降级为 needs_human_check；可能遗漏的问题只进入 missed_risk_candidates，"
+        "不能直接认定为 confirmed_issue。只返回中文 JSON。"
+    )
+    user = {
+        "task": "审计 reviewer_result，不要重写 summary、changed_modules、review_comments。",
+        "pr_overview": context["pr_overview"],
+        "selected_diff": context["selected_context"],
+        "rule_findings": context["rule_findings"],
+        "reviewer_result": reviewer_result,
+        "schema": {
+            "audit_summary": "审计总结",
+            "false_positive_candidates": [{
+                "risk_id": "risk_1",
+                "file": "文件路径",
+                "reason": "为什么可能是误检",
+                "audit_action": "keep | downgrade | remove | needs_human_check",
+                "suggested_type": "confirmed_issue | potential_risk | needs_human_check",
+                "suggested_confidence": "0-100",
+            }],
+            "missed_risk_candidates": [{
+                "file": "文件路径",
+                "evidence": "diff 或规则预检中的证据",
+                "issue": "可能遗漏的问题",
+                "reason": "为什么认为可能遗漏",
+                "suggestion": "建议人工确认或修改",
+                "risk_level": "high | medium | low",
+                "confidence": "0-100",
+                "source": "auditor_model",
+            }],
+            "confidence_adjustments": [{
+                "risk_id": "risk_1",
+                "old_confidence": 80,
+                "new_confidence": 62,
+                "reason": "调整原因",
+            }],
+            "audit_notes": ["其他审计说明"],
+            "final_recommendation": "整体审计结论",
+        },
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False, separators=(",", ":"))},
+    ]
+
+
+def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
+    risks = []
+    allowed_types = {"confirmed_issue", "potential_risk", "needs_human_check"}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        file = str(item.get("file", ""))
+        if file not in file_paths:
+            continue
+        evidence = str(item.get("evidence", "")).strip()
+        if not evidence:
+            continue
+        risk_level = item.get("risk_level", item.get("severity", "low"))
+        if risk_level not in {"low", "medium", "high"}:
+            risk_level = "low"
+        risk_type = item.get("type", "potential_risk")
+        if risk_type not in allowed_types:
+            risk_type = "potential_risk"
+        risks.append({
+            "id": item.get("id") or f"risk_{len(risks) + 1}",
+            "file": file,
+            "risk_level": risk_level,
+            "severity": risk_level,
+            "type": risk_type,
+            "evidence": evidence,
+            "issue": item.get("issue", item.get("message", "")),
+            "reason": item.get("reason", ""),
+            "suggestion": item.get("suggestion", ""),
+            "confidence": confidence_to_100(item.get("confidence", 50)),
+            "source": item.get("source", "reviewer_model"),
+        })
+    return risks
+
+
+def merge_review_and_audit(reviewer_result: dict, auditor_result: dict, context: dict | None = None) -> dict:
+    context = context or {}
+    audit_items = auditor_result if isinstance(auditor_result, dict) else {}
+    actions = {
+        item.get("risk_id"): item
+        for item in audit_items.get("false_positive_candidates", [])
+        if isinstance(item, dict)
+    }
+    adjustments = {
+        item.get("risk_id"): item
+        for item in audit_items.get("confidence_adjustments", [])
+        if isinstance(item, dict)
+    }
+    has_effective_audit = bool(actions or adjustments or audit_items.get("missed_risk_candidates"))
+    final_risks = []
+    dismissed = []
+
+    for risk in reviewer_result.get("risks", []):
+        risk_id = risk.get("id")
+        audit = actions.get(risk_id, {})
+        adjustment = adjustments.get(risk_id, {})
+        action = audit.get("audit_action", "keep" if has_effective_audit else "needs_human_check")
+        reviewer_conf = confidence_to_100(risk.get("reviewer_confidence", risk.get("confidence", 50)))
+        auditor_conf = confidence_to_100(audit.get("suggested_confidence", adjustment.get("new_confidence", reviewer_conf)))
+        final_conf = min(reviewer_conf, auditor_conf) if audit else confidence_to_100(adjustment.get("new_confidence", reviewer_conf))
+        final_type = audit.get("suggested_type", risk.get("type", "potential_risk"))
+        audit_note = audit.get("reason") or adjustment.get("reason") or "审计模型未提出降级意见。"
+        audit_status = "accepted"
+
+        if not has_effective_audit:
+            audit_note = "审计模型未完成有效二次校验，建议人工复核。"
+            audit_status = "needs_human_check"
+        elif action == "downgrade":
+            final_type = "needs_human_check"
+            audit_status = "downgraded"
+        elif action == "needs_human_check":
+            final_type = "needs_human_check"
+            audit_status = "needs_human_check"
+        elif action == "remove":
+            dismissed.append({
+                "risk_id": risk_id,
+                "file": risk.get("file", ""),
+                "issue": risk.get("issue", ""),
+                "dismiss_reason": audit_note or "Auditor 认为该风险证据不足，作为可能误检移除。",
+            })
+            continue
+
+        if is_lock_only_risk(risk, context):
+            final_type = "needs_human_check"
+            audit_status = "downgraded"
+            audit_note = "该风险主要来自 lock 文件，缺少 package.json 或源代码证据支撑，已降级为待人工确认。"
+        if final_conf < 60 and final_type == "confirmed_issue":
+            final_type = "needs_human_check"
+            audit_status = "downgraded"
+            audit_note = "最终置信度低于 60，不能作为 confirmed_issue。"
+        if final_type == "confirmed_issue" and not str(risk.get("evidence", "")).strip():
+            final_type = "needs_human_check"
+            audit_status = "downgraded"
+            audit_note = "confirmed_issue 必须有明确 diff evidence，当前证据不足。"
+
+        final_risks.append({
+            **risk,
+            "type": final_type if final_type in {"confirmed_issue", "potential_risk", "needs_human_check"} else "needs_human_check",
+            "reviewer_confidence": reviewer_conf,
+            "auditor_confidence": auditor_conf,
+            "final_confidence": final_conf,
+            "audit_status": audit_status,
+            "audit_note": audit_note,
+        })
+
+    for item in audit_items.get("missed_risk_candidates", []):
+        if not isinstance(item, dict):
+            continue
+        evidence = str(item.get("evidence", "")).strip()
+        confidence = confidence_to_100(item.get("confidence", 50))
+        final_risks.append({
+            "id": f"auditor_{len(final_risks) + 1}",
+            "file": item.get("file", ""),
+            "risk_level": item.get("risk_level", "medium") if item.get("risk_level") in {"low", "medium", "high"} else "medium",
+            "type": "potential_risk" if confidence >= 70 else "needs_human_check",
+            "evidence": evidence,
+            "issue": item.get("issue", ""),
+            "reason": item.get("reason", ""),
+            "suggestion": item.get("suggestion", ""),
+            "reviewer_confidence": 0,
+            "auditor_confidence": confidence,
+            "final_confidence": confidence,
+            "audit_status": "added_by_auditor",
+            "audit_note": "审计模型补充的可能漏检项，不直接认定为 confirmed_issue，需要人工复核。",
+            "source": "auditor_model",
+        })
+
+    return {
+        "summary": reviewer_result.get("summary", ""),
+        "changed_modules": reviewer_result.get("changed_modules", []),
+        "final_risks": final_risks,
+        "dismissed_risks": dismissed,
+        "review_comments": reviewer_result.get("review_comments", []),
+        "limitations": [
+            "AI Review 结果仅作为预审建议，最终结论需要人工 Reviewer 结合完整 diff 判断。",
+            "Auditor Model 不能完全保证发现所有误检和漏检，只用于降低单模型输出的不确定性。",
+        ],
+    }
