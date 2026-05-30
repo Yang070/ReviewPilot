@@ -1758,9 +1758,10 @@ small,
 }
 
 .workspace {
-  height: calc(100vh - 30px);
-  min-height: 760px;
+  height: calc(100vh - 86px);
+  min-height: 704px;
   gap: 12px;
+  margin-top: 56px;
 }
 
 .workspace.has-report:not(.input-expanded) {
@@ -2797,7 +2798,7 @@ button:hover {
 
 .layout > .userbar {
   position: fixed;
-  top: 16px;
+  top: 6px;
   right: 18px;
   z-index: 90;
   width: auto;
@@ -2813,13 +2814,13 @@ button:hover {
 .layout > .userbar #menuBtn.account-menu-button {
   display: grid;
   justify-content: stretch;
-  gap: 7px;
+  gap: 5px;
   width: auto;
-  max-width: 220px;
-  min-width: 142px;
-  min-height: 54px;
+  max-width: 200px;
+  min-width: 136px;
+  min-height: 46px;
   border-radius: 14px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-color: rgba(96, 165, 250, 0.22);
   background: rgba(11, 21, 36, 0.92);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
