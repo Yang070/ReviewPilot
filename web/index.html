@@ -475,7 +475,17 @@
           <input id="historySearchInput" placeholder="搜索 PR 或仓库">
           <select id="historyRiskFilter"><option value="">全部风险</option><option value="high">高风险</option><option value="medium">中风险</option><option value="low">低风险</option></select>
           <input id="historyModelFilter" placeholder="模型筛选">
-          <input id="historyDateFilter" type="date">
+          <div class="date-range-filter" aria-label="分析时间范围">
+            <label>
+              <span>开始</span>
+              <input id="historyStartDateFilter" type="date">
+            </label>
+            <span class="date-range-separator">至</span>
+            <label>
+              <span>结束</span>
+              <input id="historyEndDateFilter" type="date">
+            </label>
+          </div>
         </div>
         <div class="history-layout">
           <div id="historyList" class="stack"></div>

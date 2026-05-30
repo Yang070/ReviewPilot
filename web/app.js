@@ -139,7 +139,8 @@ const historyAskThreads = document.querySelector("#historyAskThreads");
 const historySearchInput = document.querySelector("#historySearchInput");
 const historyRiskFilter = document.querySelector("#historyRiskFilter");
 const historyModelFilter = document.querySelector("#historyModelFilter");
-const historyDateFilter = document.querySelector("#historyDateFilter");
+const historyStartDateFilter = document.querySelector("#historyStartDateFilter");
+const historyEndDateFilter = document.querySelector("#historyEndDateFilter");
 const ruleForm = document.querySelector("#ruleForm");
 const ruleFormTitle = document.querySelector("#ruleFormTitle");
 const editingRuleId = document.querySelector("#editingRuleId");
@@ -471,7 +472,8 @@ historyCloseBtn.addEventListener("click", () => {
 historySearchInput.addEventListener("input", renderFilteredHistory);
 historyRiskFilter.addEventListener("change", renderFilteredHistory);
 historyModelFilter.addEventListener("input", renderFilteredHistory);
-historyDateFilter.addEventListener("change", renderFilteredHistory);
+historyStartDateFilter.addEventListener("change", renderFilteredHistory);
+historyEndDateFilter.addEventListener("change", renderFilteredHistory);
 reviewAskSendBtn.addEventListener("click", () => sendAsk("review"));
 historyAskSendBtn.addEventListener("click", () => sendAsk("history"));
 
@@ -936,7 +938,8 @@ function renderFilteredHistory() {
   const query = (historySearchInput.value || "").trim().toLowerCase();
   const risk = historyRiskFilter.value;
   const model = (historyModelFilter.value || "").trim().toLowerCase();
-  const date = historyDateFilter.value;
+  const startDate = historyStartDateFilter.value;
+  const endDate = historyEndDateFilter.value;
   const items = historyItemsState.filter(item => {
     const text = `${item.prTitle || ""} ${item.prUrl || ""}`.toLowerCase();
     const modelText = String(item.model || "").toLowerCase();
@@ -944,7 +947,8 @@ function renderFilteredHistory() {
     if (query && !text.includes(query)) return false;
     if (risk && item.overallRisk !== risk) return false;
     if (model && !modelText.includes(model)) return false;
-    if (date && day !== date) return false;
+    if (startDate && (!day || day < startDate)) return false;
+    if (endDate && (!day || day > endDate)) return false;
     return true;
   });
   historyList.innerHTML = items.length ? renderHistoryTable(items) : empty("还没有分析记录。完成一次 PR Review 后，会在这里看到历史报告。");
