@@ -15,6 +15,18 @@ const menuBtn = document.querySelector("#menuBtn");
 const menuList = document.querySelector("#menuList");
 const accountAvatar = document.querySelector("#accountAvatar");
 const accountName = document.querySelector("#accountName");
+const openAccountSettingsBtn = document.querySelector("#openAccountSettingsBtn");
+const openUsernameDialogBtn = document.querySelector("#openUsernameDialogBtn");
+const openPasswordDialogBtn = document.querySelector("#openPasswordDialogBtn");
+const accountDialog = document.querySelector("#accountDialog");
+const accountDialogMeta = document.querySelector("#accountDialogMeta");
+const accountDialogCloseBtn = document.querySelector("#accountDialogCloseBtn");
+const usernameForm = document.querySelector("#usernameForm");
+const passwordForm = document.querySelector("#passwordForm");
+const newUsernameInput = document.querySelector("#newUsernameInput");
+const currentPasswordInput = document.querySelector("#currentPasswordInput");
+const newPasswordInput = document.querySelector("#newPasswordInput");
+const confirmNewPasswordInput = document.querySelector("#confirmNewPasswordInput");
 const brandBtn = document.querySelector("#brandBtn");
 const messageDialog = document.querySelector("#messageDialog");
 const messageTitle = document.querySelector("#messageTitle");
@@ -310,8 +322,24 @@ document.addEventListener("click", (event) => {
 });
 
 brandBtn.addEventListener("click", () => navigate(currentUser ? "/review" : "/login"));
-menuBtn.addEventListener("click", () => menuList.classList.toggle("hidden"));
+menuBtn.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const nextHidden = !menuList.classList.contains("hidden");
+  menuList.classList.toggle("hidden", nextHidden);
+  menuBtn.setAttribute("aria-expanded", String(!nextHidden));
+});
+document.addEventListener("click", (event) => {
+  if (!userMenu.contains(event.target)) {
+    menuList.classList.add("hidden");
+    menuBtn.setAttribute("aria-expanded", "false");
+  }
+});
 messageCloseBtn.addEventListener("click", () => messageDialog.close());
+accountDialogCloseBtn.addEventListener("click", () => accountDialog.close());
+
+openAccountSettingsBtn.addEventListener("click", () => openAccountDialog("username"));
+openUsernameDialogBtn.addEventListener("click", () => openAccountDialog("username"));
+openPasswordDialogBtn.addEventListener("click", () => openAccountDialog("password"));
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -329,6 +357,45 @@ registerForm.addEventListener("submit", async (event) => {
     password: document.querySelector("#registerPassword").value,
     confirmPassword: document.querySelector("#registerConfirmPassword").value,
   });
+});
+
+usernameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const data = await apiFetch("/api/account/username", {
+      method: "PATCH",
+      body: JSON.stringify({username: newUsernameInput.value}),
+    });
+    currentUser = data.user;
+    renderAuthState();
+    accountDialog.close();
+    showNotice("修改成功", "用户名已经更新。");
+  } catch (err) {
+    if (accountDialog.open) accountDialog.close();
+    showError(err);
+  }
+});
+
+passwordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await apiFetch("/api/account/password", {
+      method: "PATCH",
+      body: JSON.stringify({
+        currentPassword: currentPasswordInput.value,
+        newPassword: newPasswordInput.value,
+        confirmPassword: confirmNewPasswordInput.value,
+      }),
+    });
+    currentPasswordInput.value = "";
+    newPasswordInput.value = "";
+    confirmNewPasswordInput.value = "";
+    accountDialog.close();
+    showNotice("修改成功", "密码已经更新，下次登录请使用新密码。");
+  } catch (err) {
+    if (accountDialog.open) accountDialog.close();
+    showError(err);
+  }
 });
 
 logoutBtn.addEventListener("click", async () => {
@@ -630,6 +697,8 @@ function renderAuthState() {
   const username = loggedIn ? currentUser.username : "未登录";
   accountName.textContent = username;
   accountAvatar.textContent = accountInitials(username);
+  accountDialogMeta.textContent = loggedIn ? `当前账号：${username}` : "管理当前登录账号。";
+  if (loggedIn) newUsernameInput.value = username;
 }
 
 function accountInitials(username) {
@@ -638,6 +707,17 @@ function accountInitials(username) {
   const parts = clean.split(/[\s._-]+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return clean.slice(0, 2).toUpperCase();
+}
+
+function openAccountDialog(focusTarget) {
+  menuList.classList.add("hidden");
+  menuBtn.setAttribute("aria-expanded", "false");
+  renderAuthState();
+  accountDialog.showModal();
+  setTimeout(() => {
+    if (focusTarget === "password") currentPasswordInput.focus();
+    else newUsernameInput.focus();
+  }, 0);
 }
 
 function navigate(path) {

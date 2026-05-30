@@ -104,6 +104,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         path = self.route_path()
+        if path == "/api/account/username":
+            self.handle_update_username()
+            return
+        if path == "/api/account/password":
+            self.handle_update_password()
+            return
         if path.startswith("/api/model-configs/"):
             self.handle_update_model_config(path.rsplit("/", 1)[-1])
             return
@@ -159,6 +165,36 @@ class Handler(BaseHTTPRequestHandler):
         if token:
             SESSIONS.delete(token)
         self.send_json({"ok": True})
+
+    def handle_update_username(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            payload = self.read_json()
+            user = USER_STORE.update_username(session["username"], payload.get("username", ""))
+            token = self.auth_token()
+            if token:
+                SESSIONS.update(token, {"username": user["username"]})
+            self.send_json({"user": user})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
+
+    def handle_update_password(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            payload = self.read_json()
+            USER_STORE.update_password(
+                session["username"],
+                payload.get("currentPassword", ""),
+                payload.get("newPassword", ""),
+                payload.get("confirmPassword", ""),
+            )
+            self.send_json({"ok": True})
+        except UserError as exc:
+            self.send_json({"error": str(exc)}, status=400)
 
     def handle_add_model_config(self):
         session = self.require_session()

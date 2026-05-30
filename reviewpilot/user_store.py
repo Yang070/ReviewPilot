@@ -74,6 +74,42 @@ class UserStore:
         user = self.require_user(username)
         return self.public_user(user)
 
+    def update_username(self, username: str, new_username: str) -> dict:
+        old_username = normalize_username(username)
+        new_username = normalize_username(new_username)
+        users = self.load()
+        user = users.get(old_username)
+        if not user:
+            raise UserError("账号不存在。")
+        if new_username != old_username and new_username in users:
+            raise UserError("该账号已存在。")
+        if new_username != old_username:
+            users.pop(old_username)
+            user["username"] = new_username
+            users[new_username] = user
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+        return self.public_user(user)
+
+    def update_password(self, username: str, current_password: str, new_password: str, confirm_password: str):
+        username = normalize_username(username)
+        validate_password(new_password)
+        if new_password != confirm_password:
+            raise UserError("两次输入的新密码不一致。")
+        users = self.load()
+        user = users.get(username)
+        if not user:
+            raise UserError("账号不存在。")
+        salt = b64decode(user["passwordSalt"])
+        expected = b64decode(user["passwordHash"])
+        if not hmac.compare_digest(hash_password(current_password, salt), expected):
+            raise UserError("当前密码不正确。")
+        new_salt = os.urandom(16)
+        user["passwordSalt"] = b64(new_salt)
+        user["passwordHash"] = b64(hash_password(new_password, new_salt))
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+
     def list_model_configs(self, username: str) -> list[dict]:
         user = self.require_user(username)
         return [self.public_model_config(item) for item in user.get("modelConfigs", [])]

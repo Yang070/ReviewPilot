@@ -2795,6 +2795,93 @@ button:hover {
   width: 180px;
 }
 
+.layout > .userbar {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 90;
+  width: auto;
+  max-width: min(240px, calc(100vw - 280px));
+  align-self: auto;
+}
+
+.layout > .userbar .menu {
+  position: relative;
+  width: auto;
+}
+
+.layout > .userbar #menuBtn.account-menu-button {
+  display: grid;
+  justify-content: stretch;
+  gap: 7px;
+  width: auto;
+  max-width: 220px;
+  min-width: 142px;
+  min-height: 54px;
+  border-radius: 14px;
+  padding: 8px 12px;
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(11, 21, 36, 0.92);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  text-align: left;
+}
+
+.layout > .userbar .menu-list {
+  top: calc(100% + 8px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  z-index: 95;
+  width: 180px;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: min(320px, calc(100vh - 96px));
+  overflow: auto;
+  border-color: var(--line);
+  background: rgba(15, 27, 45, 0.98);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.44);
+}
+
+.layout > .userbar .menu-list button {
+  width: 100%;
+  min-height: 38px;
+  justify-content: flex-start;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.account-dialog {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.account-box {
+  gap: 16px;
+}
+
+.account-box .dialog-head {
+  align-items: start;
+}
+
+.account-box .dialog-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.account-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(15, 27, 45, 0.72);
+}
+
+.account-form h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+}
+
 /* Global overflow and readability guards */
 html,
 body,

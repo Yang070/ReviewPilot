@@ -32,24 +32,25 @@
           <strong id="sideModelName">未配置</strong>
           <small id="sideAnalysisMode">快速分析</small>
         </div>
-        <div class="userbar">
-          <div class="menu hidden" id="userMenu">
-            <button id="menuBtn" class="account-menu-button" type="button">
-              <span class="account-kicker">当前账号</span>
-              <span class="account-main">
-                <span id="accountAvatar" class="account-avatar">--</span>
-                <strong id="accountName">未登录</strong>
-              </span>
-            </button>
-            <div class="menu-list hidden" id="menuList">
-              <button data-route="/settings/models" type="button">模型设置</button>
-              <button data-route="/settings/rules" type="button">规则管理</button>
-              <button data-route="/history" type="button">历史记录</button>
-              <button id="logoutBtn" type="button">退出登录</button>
-            </div>
+      </header>
+
+      <div class="userbar">
+        <div class="menu hidden" id="userMenu">
+          <button id="menuBtn" class="account-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="account-kicker">当前账号</span>
+            <span class="account-main">
+              <span id="accountAvatar" class="account-avatar">--</span>
+              <strong id="accountName">未登录</strong>
+            </span>
+          </button>
+          <div class="menu-list hidden" id="menuList">
+            <button id="openAccountSettingsBtn" type="button">设置</button>
+            <button id="openUsernameDialogBtn" type="button">修改用户名</button>
+            <button id="openPasswordDialogBtn" type="button">修改密码</button>
+            <button id="logoutBtn" type="button">退出登录</button>
           </div>
         </div>
-      </header>
+      </div>
 
       <section id="loginView" class="auth-shell hidden">
         <div class="auth-copy">
@@ -536,6 +537,42 @@
           <button id="messageCloseBtn" type="button">关闭</button>
         </div>
         <div id="messageText" class="message-content"></div>
+      </div>
+    </dialog>
+
+    <dialog id="accountDialog" class="message-dialog account-dialog">
+      <div class="message-box account-box">
+        <div class="dialog-head">
+          <div>
+            <h2>账号设置</h2>
+            <p id="accountDialogMeta">管理当前登录账号。</p>
+          </div>
+          <button id="accountDialogCloseBtn" type="button">关闭</button>
+        </div>
+        <form id="usernameForm" class="account-form">
+          <h3>修改用户名</h3>
+          <label class="field">
+            <span>新用户名</span>
+            <input id="newUsernameInput" autocomplete="username" placeholder="3-24 位字母、数字或下划线">
+          </label>
+          <button class="primary" type="submit">保存用户名</button>
+        </form>
+        <form id="passwordForm" class="account-form">
+          <h3>修改密码</h3>
+          <label class="field">
+            <span>当前密码</span>
+            <input id="currentPasswordInput" type="password" autocomplete="current-password">
+          </label>
+          <label class="field">
+            <span>新密码</span>
+            <input id="newPasswordInput" type="password" autocomplete="new-password">
+          </label>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="confirmNewPasswordInput" type="password" autocomplete="new-password">
+          </label>
+          <button class="primary" type="submit">保存密码</button>
+        </form>
       </div>
     </dialog>
 
