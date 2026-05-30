@@ -82,6 +82,7 @@ const reviewerResultBox = document.querySelector("#reviewerResultBox");
 const auditorResultBox = document.querySelector("#auditorResultBox");
 const finalResultBox = document.querySelector("#finalResultBox");
 const fileSortMode = document.querySelector("#fileSortMode");
+const fileSearchInput = document.querySelector("#fileSearchInput");
 const onlyRiskFiles = document.querySelector("#onlyRiskFiles");
 const onlyHighRisk = document.querySelector("#onlyHighRisk");
 const showRuleMarkers = document.querySelector("#showRuleMarkers");
@@ -424,6 +425,7 @@ reportTabs.addEventListener("click", (event) => {
   setReportTab(button.dataset.reportTab);
 });
 fileSortMode.addEventListener("change", () => renderDiffReview(lastReport));
+fileSearchInput.addEventListener("input", () => renderDiffReview(lastReport));
 onlyRiskFiles.addEventListener("change", () => renderDiffReview(lastReport));
 onlyHighRisk.addEventListener("change", () => renderDiffReview(lastReport));
 showRuleMarkers.addEventListener("change", () => renderDiffReview(lastReport));
@@ -869,26 +871,35 @@ function splitList(value) {
 async function loadHistory() {
   const data = await apiFetch("/api/history");
   const items = data.items || [];
-  historyList.innerHTML = items.length ? items.map(renderHistoryItem).join("") : empty("暂无历史记录。完成一次 Review 后会自动保存。");
+  historyList.innerHTML = items.length ? renderHistoryTable(items) : empty("还没有分析记录。完成一次 PR Review 后，会在这里看到历史报告。");
   if (!items.length) {
     selectedHistoryReport = null;
     historyDetail.classList.add("hidden");
   }
 }
 
-function renderHistoryItem(item) {
-  return `<article class="card">
-    <div class="card-title">
-      <span>${escapeHtml(item.prTitle || "粘贴 diff 分析")}</span>
-      <span class="badge ${item.overallRisk}">${item.overallRisk}</span>
+function renderHistoryTable(items) {
+  return `<div class="data-table history-table">
+    <div class="table-row table-head">
+      <span>PR</span><span>风险等级</span><span>风险数</span><span>使用模型</span><span>分析时间</span><span>操作</span>
     </div>
-    <p><strong>PR：</strong>${escapeHtml(item.prUrl || "粘贴 diff")}</p>
-    <p><strong>模型：</strong>${escapeHtml(item.model)}；风险数：${item.riskCount}；时间：${formatTime(item.analyzedAt)}</p>
-    <div class="inline-actions">
+    ${items.map(renderHistoryItem).join("")}
+  </div>`;
+}
+
+function renderHistoryItem(item) {
+  const risk = item.overallRisk || "low";
+  return `<div class="table-row">
+    <span class="table-main">${escapeHtml(item.prTitle || item.prUrl || "粘贴 diff 分析")}</span>
+    <span><span class="badge ${risk}">${riskLevelText(risk)}</span></span>
+    <span>${item.riskCount ?? 0}</span>
+    <span>${escapeHtml(item.model || "未知模型")}</span>
+    <span>${formatTime(item.analyzedAt)}</span>
+    <span class="table-actions">
       <button type="button" data-open-history="${item.id}">查看报告</button>
       <button type="button" data-delete-history="${item.id}">删除</button>
-    </div>
-  </article>`;
+    </span>
+  </div>`;
 }
 
 historyList.addEventListener("click", async (event) => {
@@ -996,9 +1007,9 @@ function renderReport(data) {
   summaryLine.textContent = `${overview.changed_files ?? fileChanges.length} 个文件 · +${overview.additions ?? additions} / -${overview.deletions ?? deletions} · ${risks.length} 条风险 · ${analyzedFiles} 个深度分析文件 · 综合评分 ${score}`;
   overviewBox.innerHTML = renderOverview(overview, modelLabel);
   coverageBox.innerHTML = renderCoverage(coverage);
-  filesBox.innerHTML = fileChanges.length ? fileChanges.map(renderFile).join("") : empty("暂无文件");
-  priorityFilesBox.innerHTML = priorityFiles.length ? priorityFiles.map(renderPriorityFile).join("") : empty("暂无风险排序结果");
-  ruleFindingsBox.innerHTML = ruleFindings.length ? ruleFindings.map(renderRuleFinding).join("") : empty("规则层未发现需要提示的问题");
+  filesBox.innerHTML = fileChanges.length ? renderFileStatsTable(fileChanges, data) : empty("暂无文件");
+  priorityFilesBox.innerHTML = priorityFiles.length ? renderPriorityTable(priorityFiles) : empty("暂无风险排序结果");
+  ruleFindingsBox.innerHTML = ruleFindings.length ? renderRuleFindingGroup(ruleFindings) : empty("规则层未发现需要提示的问题");
   modulesBox.innerHTML = modules.length ? modules.map(renderModule).join("") : empty("暂无模块总结");
   risksBox.innerHTML = risks.length ? risks.map(renderRisk).join("") : empty("未发现有明确证据的风险");
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
@@ -1113,7 +1124,7 @@ function renderDiffReview(report, focusLine = 0) {
   const annotationIndex = buildLineAnnotations(report);
   if (!fileDiffs.length) {
     changedFilesNav.innerHTML = empty("当前报告没有可展示的 diff。");
-    linkedRiskList.innerHTML = empty("暂无风险定位。");
+    linkedRiskList.innerHTML = "";
     diffFileHeader.innerHTML = "";
     diffViewer.innerHTML = empty("后端没有返回 file_diffs，无法展示代码变更视图。");
     return;
@@ -1128,6 +1139,8 @@ function renderDiffReview(report, focusLine = 0) {
     fileLevelAnnotations: annotationIndex.fileLevel[file.filename] || [],
   })));
   const visibleFiles = files.filter(file => {
+    const query = (fileSearchInput.value || "").trim().toLowerCase();
+    if (query && !file.filename.toLowerCase().includes(query)) return false;
     if (onlyRiskFiles.checked && !file.risks.length) return false;
     if (onlyHighRisk.checked && !file.risks.some(item => ["high", "medium"].includes(item.risk_level))) return false;
     return true;
@@ -1136,7 +1149,7 @@ function renderDiffReview(report, focusLine = 0) {
   if (!activeDiffFile || !files.some(file => file.filename === activeDiffFile)) activeDiffFile = firstFile?.filename || "";
   const current = files.find(file => file.filename === activeDiffFile) || firstFile;
   changedFilesNav.innerHTML = visibleFiles.map(renderChangedFileNavItem).join("") || empty("没有符合筛选条件的文件。");
-  linkedRiskList.innerHTML = risks.length ? risks.map(renderLinkedRiskItem).join("") : empty("未发现有明确证据的风险。");
+  linkedRiskList.innerHTML = risks.length ? risks.map(renderLinkedRiskItem).join("") : "";
   if (!current) {
     diffFileHeader.innerHTML = "";
     diffViewer.innerHTML = empty("请选择一个文件查看 diff。");
@@ -1167,9 +1180,10 @@ function renderChangedFileNavItem(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const deep = isDeepAnalyzed(file.change, lastReport);
+  const muted = !file.risks.length ? "muted-file" : "";
   return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
     <strong>${escapeHtml(file.filename)}</strong>
-    <span>${risk.label} · ${score}分 · ${file.risks.length}条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
+    <span class="${muted}">${risk.label} · ${file.risks.length} 条风险 · +${file.additions} / -${file.deletions} · ${deep ? "已深度分析" : "基础检查"}</span>
     <small>${statusText(file.status).label}</small>
   </button>`;
 }
@@ -1503,6 +1517,45 @@ function renderFile(file) {
   </article>`;
 }
 
+function renderFileStatsTable(files, report) {
+  const priority = report.priority_files || report.risk_ranking || [];
+  return `<div class="data-table file-table">
+    <div class="table-row table-head">
+      <span>文件名</span><span>类型</span><span>风险等级</span><span>风险分</span><span>新增 / 删除</span><span>深度分析</span>
+    </div>
+    ${files.map(file => {
+      const ranked = priority.find(item => item.filename === file.filename) || file;
+      const score = Number(ranked.risk_score || ranked.priority || file.risk_score || 0);
+      const risk = riskScoreText(score);
+      return `<div class="table-row">
+        <span class="table-main">${escapeHtml(file.filename || file.path || "未知文件")}</span>
+        <span>${escapeHtml(categoryText(file.category || ranked.category || "general"))}</span>
+        <span><span class="badge ${risk.className}">${risk.label}</span></span>
+        <span>${score}</span>
+        <span>+${Number(file.additions || 0)} / -${Number(file.deletions || 0)}</span>
+        <span>${isDeepAnalyzed(file, report) ? "已深度分析" : "基础检查"}</span>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function renderPriorityTable(files) {
+  return `<div class="data-table file-table">
+    <div class="table-row table-head">
+      <span>文件名</span><span>风险分</span><span>关注原因</span>
+    </div>
+    ${files.map(file => {
+      const score = Number(file.risk_score ?? file.priority ?? 0);
+      const reasons = file.risk_reasons || (file.reason ? [file.reason] : []);
+      return `<div class="table-row">
+        <span class="table-main">${escapeHtml(file.filename || "未知文件")}</span>
+        <span><span class="badge ${riskScoreText(score).className}">${score}</span></span>
+        <span>${escapeHtml(reasons.join("；") || "普通变更文件")}</span>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
 function renderPriorityFile(file) {
   const score = Number(file.risk_score ?? file.priority ?? 0);
   const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
@@ -1519,18 +1572,27 @@ function renderPriorityFile(file) {
 
 function renderRuleFinding(item) {
   const view = formatRuleFindingForUser(item);
-  return `<article class="card">
-    <div class="card-title">
-      <span>${escapeHtml(view.title)}</span>
-      <span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span>
-    </div>
-    <p><strong>位置：</strong>${escapeHtml(view.locationLabel)}</p>
-    <p><strong>发现：</strong>${escapeHtml(view.findingText)}</p>
-    <p><strong>为什么值得关注：</strong>${escapeHtml(view.whyItMatters)}</p>
-    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
-    <p><strong>AI 结论：</strong>${escapeHtml(view.aiConclusionText)}</p>
-    <div class="inline-actions"><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.rule_id || item.file || "")}">追问这个问题</button></div>
-  </article>`;
+  return `<div class="compact-row">
+    <span class="table-main">${escapeHtml(view.title)}</span>
+    <span>${escapeHtml(view.locationLabel)}</span>
+    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span></span>
+    <span>${escapeHtml(view.findingText)}</span>
+  </div>`;
+}
+
+function renderRuleFindingGroup(items) {
+  const accepted = items.filter(item => item.status === "accepted").length;
+  const manual = items.filter(item => ["downgraded", "pending_ai_review", "needs_human_check"].includes(item.status)).length;
+  return `<div class="audit-metrics">
+    <span>启用规则 ${reviewRules.filter(rule => rule.enabled).length} 条</span>
+    <span>命中 ${items.length} 条</span>
+    <span>已采纳 ${accepted} 条</span>
+    <span>需人工确认 ${manual} 条</span>
+  </div>
+  <div class="compact-list">
+    <div class="compact-row compact-head"><span>规则名称</span><span>位置</span><span>状态</span><span>说明</span></div>
+    ${items.map(renderRuleFinding).join("")}
+  </div>`;
 }
 
 function renderAuditReport(data) {
@@ -1562,12 +1624,12 @@ function renderAuditReport(data) {
 }
 
 function renderReviewerRisk(item) {
-  return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${item.risk_level}</span></div>
-    <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
-    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
-    <p><strong>初审置信度：</strong>${confidenceLabel(item.reviewer_confidence ?? item.confidence)}</p>
-  </article>`;
+  return `<div class="compact-row">
+    <span class="table-main">${escapeHtml(item.file || "未知文件")}</span>
+    <span><span class="badge ${item.risk_level || "medium"}">${riskLevelText(item.risk_level)}</span></span>
+    <span>${confidenceLabel(item.reviewer_confidence ?? item.confidence)}</span>
+    <span>${escapeHtml(item.issue || "未说明问题")}</span>
+  </div>`;
 }
 
 function renderAuditorResult(auditor) {
@@ -1575,51 +1637,69 @@ function renderAuditorResult(auditor) {
   const missed = auditor.missed_risk_candidates || [];
   const adjustments = auditor.confidence_adjustments || [];
   const notes = auditor.audit_notes || [];
-  return `<article class="card"><p>${escapeHtml(auditor.audit_summary || "审计模型没有返回总结。")}</p></article>
-    <h3>可能误检项</h3>${falsePositives.length ? falsePositives.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.reason)}</p><p>动作：${escapeHtml(auditActionText(item.audit_action || ""))}；建议类型：${escapeHtml(typeText(item.suggested_type || ""))}；建议置信度：${confidenceLabel(item.suggested_confidence)}</p></article>`).join("") : empty("暂无可能误检项")}
-    <h3>可能漏检项</h3>${missed.length ? missed.map(item => `<article class="card compact-card"><p><strong>${escapeHtml(item.file)}</strong>：${escapeHtml(item.issue)}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无可能漏检项")}
-    <h3>置信度调整</h3>${adjustments.length ? adjustments.map(item => `<article class="card compact-card"><p>${escapeHtml(item.risk_id)}：${item.old_confidence} -> ${item.new_confidence}</p><p>${escapeHtml(item.reason)}</p></article>`).join("") : empty("暂无置信度调整")}
-    <h3>审计说明</h3>${notes.length ? notes.map(renderLimitation).join("") : empty("暂无额外审计说明")}
-    <h3>最终审计建议</h3><article class="card compact-card"><p>${escapeHtml(auditor.final_recommendation || "暂无最终审计建议。")}</p></article>`;
+  return `<article class="list-item"><strong>审计总结</strong><p>${escapeHtml(auditor.audit_summary || "审计模型没有返回总结。")}</p></article>
+    <h3>可能误报，已被审计模型降级/移除</h3>${falsePositives.length ? renderAuditRows(falsePositives, item => [
+      item.file || "未知文件",
+      auditActionText(item.audit_action || ""),
+      confidenceLabel(item.suggested_confidence),
+      item.reason || "未说明原因",
+    ]) : empty("暂无可能误报")}
+    <h3>审计模型补充的可能遗漏项</h3>${missed.length ? renderAuditRows(missed, item => [
+      item.file || "未知文件",
+      riskLevelText(item.risk_level),
+      confidenceLabel(item.confidence),
+      item.issue || item.reason || "未说明问题",
+    ]) : empty("暂无可能遗漏项")}
+    <h3>审计后置信度调整</h3>${adjustments.length ? renderAuditRows(adjustments, item => [
+      item.risk_id || "未知风险",
+      `${item.old_confidence} -> ${item.new_confidence}`,
+      "",
+      item.reason || "未说明原因",
+    ]) : empty("暂无置信度调整")}
+    <details class="tech-details"><summary>审计说明</summary>${notes.length ? notes.map(renderLimitation).join("") : empty("暂无额外审计说明")}</details>
+    <article class="list-item"><strong>最终审计建议</strong><p>${escapeHtml(auditor.final_recommendation || "暂无最终审计建议。")}</p></article>`;
+}
+
+function renderAuditRows(items, mapper) {
+  return `<div class="compact-list">${items.map(item => {
+    const [main, state, confidence, detail] = mapper(item);
+    return `<div class="compact-row">
+      <span class="table-main">${escapeHtml(main)}</span>
+      <span>${escapeHtml(state)}</span>
+      <span>${escapeHtml(confidence)}</span>
+      <span>${escapeHtml(detail)}</span>
+    </div>`;
+  }).join("")}</div>`;
 }
 
 function renderFinalRisk(item) {
   const view = formatRiskForUser(item);
-  return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(view.locationLabel)}</span><span class="badge ${item.risk_level}">${escapeHtml(view.title)}</span><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">追问这个问题</button></div>
-    <p><strong>问题：</strong>${escapeHtml(view.issueText)}</p>
-    <p><strong>为什么要看：</strong>${escapeHtml(view.whyItMatters)}</p>
-    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
-    <p><strong>依据：</strong>${escapeHtml(view.evidenceText)}</p>
-    <p><strong>初审模型置信度：</strong>${confidenceLabel(item.reviewer_confidence)}；<strong>审计模型置信度：</strong>${confidenceLabel(item.auditor_confidence)}；<strong>最终置信度：</strong>${confidenceLabel(item.final_confidence)}</p>
-    <p><strong>审计说明：</strong>${escapeHtml(view.auditText)}</p>
-  </article>`;
+  return `<div class="compact-row">
+    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
+    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
+    <span>${confidenceLabel(item.final_confidence)}</span>
+    <span>${escapeHtml(view.issueText)}</span>
+  </div>`;
 }
 
 function renderModule(item) {
   const name = item.name || item.module || "未命名模块";
   const summary = item.summary || item.change || "无总结";
-  return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(name)}</span></div>
+  return `<article class="list-item">
+    <strong>${escapeHtml(name)}</strong>
     <p>${escapeHtml(summary)}</p>
-    <p><strong>文件：</strong>${escapeHtml((item.files || []).join(", "))}</p>
+    <small>${escapeHtml((item.files || []).join(", "))}</small>
   </article>`;
 }
 
 function renderRisk(item) {
   const view = formatRiskForUser(item);
-  return `<article class="card">
-    <div class="card-title">
-      <span>${escapeHtml(view.locationLabel)}</span>
-      <span class="badge ${item.risk_level}">${escapeHtml(view.title)}</span>
-      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">追问这个问题</button>
-    </div>
-    <p><strong>问题：</strong>${escapeHtml(view.issueText)}</p>
-    <p><strong>为什么要看：</strong>${escapeHtml(view.whyItMatters)}</p>
-    <p><strong>建议：</strong>${escapeHtml(view.suggestionText)}</p>
-    <p><strong>依据：</strong>${escapeHtml(view.evidenceText)}</p>
-    <p><strong>置信度：</strong>${confidenceLabel(item.confidence)}</p>
-  </article>`;
+  return `<div class="compact-row">
+    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
+    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
+    <span>${confidenceLabel(item.confidence)}</span>
+    <span>${escapeHtml(view.issueText)}</span>
+  </div>`;
 }
 
 function renderComment(item) {

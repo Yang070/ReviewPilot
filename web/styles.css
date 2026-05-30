@@ -3,7 +3,7 @@
   --panel: #fff;
   --text: #17202a;
   --muted: #667085;
-  --line: #d7dee8;
+  --line: #d0d7de;
   --accent: #2563eb;
   --accent-dark: #1d4ed8;
   --teal: #0f766e;
@@ -149,23 +149,28 @@ small {
 
 .auth-shell {
   min-height: calc(100vh - 116px);
+  grid-template-columns: minmax(320px, 420px) minmax(320px, 420px);
 }
 
 .auth-copy {
   display: grid;
-  gap: 18px;
+  gap: 12px;
   padding: 10px;
 }
 
 .auth-copy h2 {
   max-width: 520px;
-  font-size: 34px;
+  font-size: 32px;
   line-height: 1.15;
 }
 
 .auth-copy p {
   max-width: 520px;
   line-height: 1.7;
+}
+
+.center-text {
+  text-align: center;
 }
 
 .eyebrow {
@@ -296,15 +301,32 @@ small {
 
 .history-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 0.85fr) minmax(520px, 1.15fr);
-  gap: 18px;
+  grid-template-columns: 1fr;
+  gap: 14px;
   align-items: start;
+}
+
+.history-container {
+  width: min(1120px, 100%);
+  margin: 0 auto;
 }
 
 .history-detail {
   padding: 18px;
-  position: sticky;
-  top: 18px;
+}
+
+.history-table .table-row {
+  grid-template-columns: minmax(260px, 1.5fr) 110px 80px minmax(160px, 1fr) 150px 160px;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.table-actions button {
+  min-height: 30px;
+  padding: 0 10px;
 }
 
 .history-summary {
@@ -806,13 +828,119 @@ button:hover {
 
 .summary-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.subtle-section {
+  padding: 0;
+}
+
+.subtle-section summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.subtle-section .stack,
+.subtle-section .data-table,
+.subtle-section .card,
+.subtle-section .list-item {
+  margin: 0 16px 14px;
+}
+
+.data-table {
+  display: grid;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.table-row,
+.compact-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(100px, 0.7fr) minmax(90px, 0.5fr) minmax(120px, 0.7fr) minmax(120px, 0.8fr) minmax(120px, 0.7fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.file-table .table-row {
+  grid-template-columns: minmax(260px, 1.8fr) 150px 110px 80px 110px 100px;
+}
+
+.table-row:last-child,
+.compact-row:last-child {
+  border-bottom: 0;
+}
+
+.table-head,
+.compact-head {
+  min-height: 36px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.table-main {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.compact-row {
+  grid-template-columns: minmax(220px, 1.3fr) 120px 120px minmax(260px, 2fr);
+}
+
+.audit-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.audit-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8fafc;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.list-item {
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 0;
+}
+
+.list-item:last-child {
+  border-bottom: 0;
+}
+
+.list-item p {
+  line-height: 1.55;
 }
 
 .diff-review-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
   gap: 0;
   height: 100%;
   min-height: 0;
@@ -820,7 +948,7 @@ button:hover {
 
 .diff-sidebar {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) minmax(160px, 240px);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 10px;
   align-content: stretch;
   overflow: hidden;
@@ -841,6 +969,8 @@ button:hover {
 .diff-toolbar {
   display: grid;
   gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
 }
 
 .changed-files-nav,
@@ -869,7 +999,8 @@ button:hover {
 }
 
 .file-nav-item {
-  min-height: 68px;
+  min-height: 62px;
+  border-radius: 6px;
 }
 
 .file-nav-item.active {
@@ -882,6 +1013,14 @@ button:hover {
 .risk-jump-item strong {
   max-width: 100%;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.muted-file {
+  opacity: 0.68;
 }
 
 .diff-file-header h3 {

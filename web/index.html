@@ -32,14 +32,9 @@
 
       <section id="loginView" class="auth-shell hidden">
         <div class="auth-copy">
-          <span class="eyebrow">ReviewPilot Workbench</span>
-          <h2>登录后进入风险感知评审工作台</h2>
-          <p>配置模型、分析 PR、查看历史记录都在一个工作台里完成，不再把 API Key 混进注册流程。</p>
-          <div class="auth-points">
-            <span>文件风险评分</span>
-            <span>规则检测</span>
-            <span>历史报告</span>
-          </div>
+          <span class="eyebrow">ReviewPilot</span>
+          <h2>欢迎回来</h2>
+          <p>登录 ReviewPilot，继续查看你的 PR Review 记录。</p>
         </div>
         <form id="loginForm" class="panel auth-card">
           <h2>欢迎回来</h2>
@@ -58,14 +53,9 @@
 
       <section id="registerView" class="auth-shell hidden">
         <div class="auth-copy">
-          <span class="eyebrow">Create Account</span>
-          <h2>先创建账号，再在工作台配置模型</h2>
-          <p>注册只负责身份信息。API Key 会在模型设置中单独保存、掩码展示，后续可以随时切换。</p>
-          <div class="auth-points">
-            <span>多模型配置</span>
-            <span>默认模型</span>
-            <span>连接测试</span>
-          </div>
+          <span class="eyebrow">ReviewPilot</span>
+          <h2>创建账号</h2>
+          <p>开始使用 ReviewPilot 进行 PR 预审。</p>
         </div>
         <form id="registerForm" class="panel auth-card">
           <h2>创建账号</h2>
@@ -86,6 +76,7 @@
             <input id="registerConfirmPassword" type="password" autocomplete="new-password">
           </label>
           <button class="primary" type="submit">注册</button>
+          <p class="helper center-text">模型 API Key 可在登录后到设置中配置。</p>
           <button class="link-button" data-route="/login" type="button">已有账号，去登录</button>
         </form>
       </section>
@@ -265,6 +256,10 @@
                 <aside class="diff-sidebar">
                   <div class="diff-toolbar">
                     <label class="field">
+                      <span>搜索文件</span>
+                      <input id="fileSearchInput" placeholder="输入文件名或路径">
+                    </label>
+                    <label class="field hidden">
                       <span>文件排序</span>
                       <select id="fileSortMode">
                         <option value="risk">按风险分</option>
@@ -274,15 +269,11 @@
                     </label>
                     <label class="check-row"><input id="onlyRiskFiles" type="checkbox"> 只看有风险</label>
                     <label class="check-row"><input id="onlyHighRisk" type="checkbox"> 只看中高风险</label>
-                    <label class="check-row"><input id="showRuleMarkers" type="checkbox" checked> 显示规则预检</label>
-                    <label class="check-row"><input id="showAuditNotes" type="checkbox" checked> 显示审计说明</label>
+                    <label class="check-row hidden"><input id="showRuleMarkers" type="checkbox" checked> 显示规则预检</label>
+                    <label class="check-row hidden"><input id="showAuditNotes" type="checkbox" checked> 显示审计说明</label>
                   </div>
                   <div id="changedFilesNav" class="changed-files-nav"></div>
-                  <section class="risk-list-panel">
-                    <h3>风险定位</h3>
-                    <p>以下风险由 AI 自动分析生成，仅作为预审建议。请结合完整代码上下文判断。</p>
-                    <div id="linkedRiskList" class="stack"></div>
-                  </section>
+                  <div id="linkedRiskList" class="hidden"></div>
                 </aside>
                 <section class="diff-main">
                   <div id="diffFileHeader" class="diff-file-header"></div>
@@ -300,12 +291,14 @@
             <div class="report-pane hidden" data-report-panel="overview">
               <div class="summary-layout">
                 <section class="result-section"><h3>PR 概览</h3><div id="overviewBox" class="stack"></div></section>
-                <section class="result-section"><h3>上下文覆盖</h3><div id="coverageBox" class="stack"></div></section>
-                <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
+                <section class="result-section"><h3>主要变更</h3><div id="modules" class="stack"></div></section>
                 <section class="result-section"><h3>文件统计</h3><div id="files" class="stack"></div></section>
-                <section class="result-section"><h3>重点文件</h3><div id="priorityFiles" class="stack"></div></section>
-                <section class="result-section"><h3>Review 建议</h3><div id="comments" class="stack"></div></section>
-                <section class="result-section"><h3>AI 分析限制</h3><div id="limitations" class="stack"></div></section>
+                <details class="result-section subtle-section"><summary>更多摘要信息</summary>
+                  <div id="coverageBox" class="stack"></div>
+                  <div id="priorityFiles" class="stack"></div>
+                  <div id="comments" class="stack"></div>
+                  <div id="limitations" class="stack"></div>
+                </details>
               </div>
             </div>
             <div class="report-pane hidden" data-report-panel="audit">
@@ -421,6 +414,7 @@
       </section>
 
       <section id="historyView" class="page-panel hidden">
+        <div class="history-container">
         <div class="section-head">
           <div>
             <h2>History</h2>
@@ -462,6 +456,7 @@
             </section>
             <pre id="historyMarkdownPreview" class="markdown-preview"></pre>
           </section>
+        </div>
         </div>
       </section>
     </main>
