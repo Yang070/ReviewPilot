@@ -17,15 +17,15 @@
           </span>
         </button>
         <nav class="side-nav" id="globalNav">
-          <button class="active" data-global-tab="code" data-icon="code" type="button">代码评审</button>
-          <button data-global-tab="overview" data-icon="layout" type="button">概览</button>
-          <button data-global-tab="overview" data-icon="file-text" type="button">摘要</button>
-          <button data-global-tab="audit" data-icon="shield" type="button">审计</button>
-          <button data-global-tab="ask" data-icon="message" type="button">AI 问答</button>
-          <button data-global-tab="code" data-icon="files" type="button">变更文件</button>
-          <button data-route="/history" data-icon="history" type="button">历史记录</button>
-          <button data-route="/settings/models" data-icon="sliders" type="button">模型设置</button>
-          <button data-route="/settings/rules" data-icon="settings" type="button">系统设置</button>
+          <button class="active" data-sidebar-key="code_review" data-report-target="code" data-icon="code" type="button">代码评审</button>
+          <button data-sidebar-key="overview" data-report-target="overview" data-icon="layout" type="button">概览</button>
+          <button data-sidebar-key="summary" data-report-target="overview" data-icon="file-text" type="button">摘要</button>
+          <button data-sidebar-key="audit" data-report-target="audit" data-icon="shield" type="button">审计</button>
+          <button data-sidebar-key="ask" data-report-target="ask" data-icon="message" type="button">AI 问答</button>
+          <button data-sidebar-key="changed_files" data-report-target="code" data-icon="files" type="button">变更文件</button>
+          <button data-sidebar-key="history" data-route="/history" data-icon="history" type="button">历史记录</button>
+          <button data-sidebar-key="model_settings" data-route="/settings/models" data-icon="sliders" type="button">模型设置</button>
+          <button data-sidebar-key="system_settings" data-route="/settings/rules" data-icon="settings" type="button">系统设置</button>
         </nav>
         <div class="sidebar-footer">
           <span>当前模型</span>
@@ -277,13 +277,13 @@
 
             <div class="report-pane" data-report-panel="code">
               <section id="metricsDashboard" class="metrics-dashboard"></section>
-              <section class="top-priority-section">
-                <div class="section-title-row">
-                  <h3>优先查看 TOP 3</h3>
-                  <button class="ghost-button" data-global-tab="audit" type="button">查看全部高风险文件</button>
-                </div>
+              <details class="top-priority-section" id="topPrioritySection" open>
+                <summary>
+                  <span>优先查看 TOP 3</span>
+                  <button class="ghost-button" data-sidebar-key="audit" data-report-target="audit" type="button">查看审计</button>
+                </summary>
                 <div id="topPriorityList" class="top-priority-list"></div>
-              </section>
+              </details>
               <section class="diff-review-shell">
                 <aside class="diff-sidebar">
                   <div class="diff-toolbar">
@@ -318,18 +318,22 @@
                   </div>
                 </aside>
               </section>
-              <section class="issues-section">
+              <details class="issues-section" id="issuesSection">
+                <summary>
+                  <span>AI 发现 <strong id="inlineIssueCount">0</strong> 个问题，查看全部</span>
+                </summary>
                 <div class="section-title-row">
                   <h3>AI 发现的问题</h3>
                   <div class="segmented-control"><button class="active" type="button">AI 发现的问题</button><button type="button">已解决</button><button type="button">全部问题</button></div>
                 </div>
                 <div id="inlineIssueList" class="issue-list"></div>
-              </section>
+              </details>
             </div>
 
             <div class="report-pane hidden" data-report-panel="overview">
               <div class="summary-layout">
                 <section class="result-section"><h3>PR 概览</h3><div id="overviewBox" class="stack"></div></section>
+                <section class="result-section overview-radar-section"><h3>质量雷达</h3><div id="overviewRadarBox"></div></section>
                 <section class="result-section"><h3>主要变更</h3><div id="modules" class="stack"></div></section>
                 <section class="result-section"><h3>文件统计</h3><div id="files" class="stack"></div></section>
                 <details class="result-section subtle-section"><summary>更多摘要信息</summary>
@@ -362,12 +366,18 @@
                     <select id="reviewAskModelSelect"></select>
                   </label>
                 </div>
-                <div id="reviewAskSuggestions" class="suggestion-row"></div>
-                <div class="ask-input-row">
-                  <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="例如：这个 PR 最需要人工复核哪里？"></textarea>
-                  <button id="reviewAskSendBtn" class="primary" type="button">发送追问</button>
+                <div class="ask-chat-area">
+                  <div class="ask-main-column">
+                    <div id="reviewAskSuggestions" class="suggestion-row"></div>
+                    <div id="reviewAskThreads" class="ask-thread-list"></div>
+                    <div class="ask-input-row">
+                      <button class="weak-button" type="button">引用上下文</button>
+                      <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="继续提问关于本次 PR 的问题，例如：这个风险为什么成立？"></textarea>
+                      <button id="reviewAskSendBtn" class="primary" type="button">发送</button>
+                    </div>
+                  </div>
+                  <aside id="reviewAskContext" class="ask-context-panel"></aside>
                 </div>
-                <div id="reviewAskThreads" class="ask-thread-list"></div>
               </section>
             </div>
           </div>
