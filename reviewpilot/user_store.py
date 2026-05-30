@@ -247,6 +247,7 @@ class UserStore:
             "model": model_config.get("displayName") or model_config.get("modelName", ""),
             "analyzedAt": int(time.time()),
             "report": result,
+            "ask_threads": [],
         }
         history = user.setdefault("history", [])
         history.insert(0, item)
@@ -264,7 +265,32 @@ class UserStore:
         item = next((item for item in user.get("history", []) if item["id"] == history_id), None)
         if not item:
             raise UserError("历史记录不存在。")
+        item.setdefault("ask_threads", [])
         return item
+
+    def add_ask_thread(self, username: str, history_id: str, question: str, answer: dict, model_config: dict) -> dict:
+        users = self.load()
+        user = self.require_user_from(users, username)
+        item = next((item for item in user.get("history", []) if item["id"] == history_id), None)
+        if not item:
+            raise UserError("历史记录不存在。")
+        thread = {
+            "id": "ask_" + secrets.token_urlsafe(8),
+            "history_id": history_id,
+            "question": str(question or "").strip(),
+            "answer": answer.get("answer", ""),
+            "related_files": answer.get("related_files", []),
+            "related_risks": answer.get("related_risks", []),
+            "confidence": answer.get("confidence", 50),
+            "limitations": answer.get("limitations", []),
+            "model": model_config.get("displayName") or model_config.get("modelName", ""),
+            "created_at": int(time.time()),
+        }
+        item.setdefault("ask_threads", []).append(thread)
+        item["updatedAt"] = int(time.time())
+        user["updatedAt"] = int(time.time())
+        self.save(users)
+        return thread
 
     def delete_history(self, username: str, history_id: str):
         users = self.load()
@@ -387,6 +413,7 @@ class UserStore:
             "prTitle": item.get("prTitle", ""),
             "overallRisk": item.get("overallRisk", "low"),
             "riskCount": item.get("riskCount", 0),
+            "askCount": len(item.get("ask_threads", [])),
             "model": item.get("model", ""),
             "analyzedAt": item.get("analyzedAt", 0),
         }

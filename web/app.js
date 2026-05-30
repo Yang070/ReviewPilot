@@ -95,6 +95,18 @@ const historyDetailSummary = document.querySelector("#historyDetailSummary");
 const historyMarkdownPreview = document.querySelector("#historyMarkdownPreview");
 const historyDownloadBtn = document.querySelector("#historyDownloadBtn");
 const historyCloseBtn = document.querySelector("#historyCloseBtn");
+const reviewAskPanel = document.querySelector("#reviewAskPanel");
+const reviewAskModelSelect = document.querySelector("#reviewAskModelSelect");
+const reviewAskSuggestions = document.querySelector("#reviewAskSuggestions");
+const reviewAskQuestion = document.querySelector("#reviewAskQuestion");
+const reviewAskSendBtn = document.querySelector("#reviewAskSendBtn");
+const reviewAskThreads = document.querySelector("#reviewAskThreads");
+const historyAskPanel = document.querySelector("#historyAskPanel");
+const historyAskModelSelect = document.querySelector("#historyAskModelSelect");
+const historyAskSuggestions = document.querySelector("#historyAskSuggestions");
+const historyAskQuestion = document.querySelector("#historyAskQuestion");
+const historyAskSendBtn = document.querySelector("#historyAskSendBtn");
+const historyAskThreads = document.querySelector("#historyAskThreads");
 const ruleForm = document.querySelector("#ruleForm");
 const ruleFormTitle = document.querySelector("#ruleFormTitle");
 const editingRuleId = document.querySelector("#editingRuleId");
@@ -122,6 +134,9 @@ let ruleTemplates = [];
 let lastSummary = "";
 let lastReport = null;
 let selectedHistoryReport = null;
+let selectedHistoryId = "";
+let reviewAskThreadsState = [];
+let historyAskThreadsState = [];
 let progressTimer = null;
 let activeInputTab = "url";
 
@@ -155,6 +170,15 @@ index 3333333..4444444 100644
 +  await gateway.charge(amount);
  }`;
 
+const askSuggestions = [
+  "\u8fd9\u4e2a PR \u6700\u9700\u8981\u4eba\u5de5\u590d\u6838\u54ea\u91cc\uff1f",
+  "\u6709\u6ca1\u6709\u6d4b\u8bd5\u8986\u76d6\u4e0d\u8db3\uff1f",
+  "\u54ea\u4e9b\u98ce\u9669\u662f\u6a21\u578b\u4e0d\u786e\u5b9a\u7684\uff1f",
+  "\u89c4\u5219\u9884\u68c0\u547d\u4e2d\u7684\u95ee\u9898\u6709\u6ca1\u6709\u88ab AI \u91c7\u7eb3\uff1f",
+  "\u5ba1\u8ba1\u6a21\u578b\u4e3a\u4ec0\u4e48\u964d\u7ea7\u67d0\u4e9b\u98ce\u9669\uff1f",
+  "\u5e2e\u6211\u751f\u6210\u4e00\u6bb5\u7b80\u77ed\u7684 PR Review \u603b\u7ed3\u3002",
+];
+
 document.addEventListener("click", (event) => {
   const routeButton = event.target.closest("[data-route]");
   if (routeButton) {
@@ -166,6 +190,13 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) await copyText(copyButton.dataset.copy, "Review Comment 已复制。");
+});
+
+document.addEventListener("click", (event) => {
+  const askSuggestion = event.target.closest("[data-ask-suggestion]");
+  if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
+  const riskAsk = event.target.closest("[data-risk-ask]");
+  if (riskAsk) fillAskQuestion("review", "\u8bf7\u8fdb\u4e00\u6b65\u89e3\u91ca\u8fd9\u4e2a\u98ce\u9669\u4e3a\u4ec0\u4e48\u6210\u7acb\uff0c\u4ee5\u53ca\u5e94\u8be5\u5982\u4f55\u4fee\u6539\uff1f");
 });
 
 brandBtn.addEventListener("click", () => navigate(currentUser ? "/review" : "/login"));
@@ -323,8 +354,11 @@ quickTestModelBtn.addEventListener("click", async () => {
 historyDownloadBtn.addEventListener("click", () => downloadMarkdownReport(selectedHistoryReport));
 historyCloseBtn.addEventListener("click", () => {
   selectedHistoryReport = null;
+  selectedHistoryId = "";
   historyDetail.classList.add("hidden");
 });
+reviewAskSendBtn.addEventListener("click", () => sendAsk("review"));
+historyAskSendBtn.addEventListener("click", () => sendAsk("history"));
 
 reportTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-report-tab]");
@@ -525,11 +559,15 @@ function renderModelSelect() {
     : `<option value="">请先添加模型配置</option>`;
   reviewerModelSelect.innerHTML = modelConfigSelect.innerHTML;
   auditorModelSelect.innerHTML = modelConfigSelect.innerHTML;
+  reviewAskModelSelect.innerHTML = modelConfigSelect.innerHTML;
+  historyAskModelSelect.innerHTML = modelConfigSelect.innerHTML;
   const defaultConfig = modelConfigs.find(item => item.is_default);
   if (defaultConfig) {
     modelConfigSelect.value = defaultConfig.id;
     reviewerModelSelect.value = defaultConfig.id;
     auditorModelSelect.value = defaultConfig.id;
+    reviewAskModelSelect.value = defaultConfig.id;
+    historyAskModelSelect.value = defaultConfig.id;
   }
   renderWorkbenchStatus();
   renderAuditModeControls();
@@ -788,12 +826,15 @@ historyList.addEventListener("click", async (event) => {
 
 function renderHistoryDetail(item) {
   selectedHistoryReport = item.report;
+  selectedHistoryId = item.id;
+  historyAskThreadsState = item.ask_threads || [];
   const report = item.report || {};
   historyDetail.classList.remove("hidden");
   historyDetailTitle.textContent = item.prTitle || report.pr_overview?.title || "历史报告";
   historyDetailMeta.textContent = `模型：${item.model || report.model || "未知"}；风险数：${item.riskCount ?? (report.risks || []).length}；时间：${formatTime(item.analyzedAt)}`;
   historyDetailSummary.textContent = report.summary || "该历史记录没有摘要。";
   historyMarkdownPreview.textContent = buildMarkdownReport(report);
+  renderAskPanel("history", selectedHistoryId, historyAskThreadsState);
 }
 
 function renderReport(data) {
@@ -833,6 +874,103 @@ function renderReport(data) {
   commentsBox.innerHTML = comments.length ? comments.map(renderComment).join("") : empty("暂无 Review 建议");
   limitationsBox.innerHTML = (data.limitations || []).length ? data.limitations.map(renderLimitation).join("") : empty("暂无额外限制说明");
   renderAuditReport(data);
+  reviewAskThreadsState = data.ask_threads || [];
+  renderAskPanel("review", data.history_id || "", reviewAskThreadsState);
+}
+
+function renderAskPanel(scope, historyId, threads) {
+  const refs = askRefs(scope);
+  refs.panel.classList.toggle("hidden", !historyId);
+  refs.panel.dataset.historyId = historyId || "";
+  refs.suggestions.innerHTML = askSuggestions.map(question =>
+    `<button type="button" data-ask-scope="${scope}" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
+  ).join("");
+  refs.threads.innerHTML = threads.length ? threads.map(renderAskThread).join("") : empty("还没有追问。你可以从上方推荐问题开始。");
+}
+
+async function sendAsk(scope) {
+  const refs = askRefs(scope);
+  const historyId = refs.panel.dataset.historyId;
+  const question = refs.question.value.trim();
+  if (!historyId) {
+    showError("当前报告还没有保存为历史记录，暂时不能追问。");
+    return;
+  }
+  if (!question) {
+    showError("请输入要追问的问题。");
+    return;
+  }
+  refs.sendBtn.disabled = true;
+  try {
+    const data = await apiFetch("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        history_id: historyId,
+        question,
+        model_config_id: refs.modelSelect.value,
+      }),
+    });
+    const thread = data.ask_thread || {question, ...data, created_at: Math.floor(Date.now() / 1000)};
+    if (scope === "review") {
+      reviewAskThreadsState.push(thread);
+      renderAskPanel("review", historyId, reviewAskThreadsState);
+    } else {
+      historyAskThreadsState.push(thread);
+      renderAskPanel("history", historyId, historyAskThreadsState);
+    }
+    refs.question.value = "";
+  } catch (err) {
+    showError(`${err.message} 如果模型调用失败，请切换模型配置或检查 API 额度。`);
+  } finally {
+    refs.sendBtn.disabled = false;
+  }
+}
+
+function askRefs(scope) {
+  return scope === "history"
+    ? {
+        panel: historyAskPanel,
+        modelSelect: historyAskModelSelect,
+        suggestions: historyAskSuggestions,
+        question: historyAskQuestion,
+        sendBtn: historyAskSendBtn,
+        threads: historyAskThreads,
+      }
+    : {
+        panel: reviewAskPanel,
+        modelSelect: reviewAskModelSelect,
+        suggestions: reviewAskSuggestions,
+        question: reviewAskQuestion,
+        sendBtn: reviewAskSendBtn,
+        threads: reviewAskThreads,
+      };
+}
+
+function fillAskQuestion(scope, question) {
+  const refs = askRefs(scope || "review");
+  refs.question.value = question || "";
+  refs.question.focus();
+}
+
+function renderAskThread(item) {
+  const confidence = Number(item.confidence || 0);
+  const files = item.related_files || [];
+  const risks = item.related_risks || [];
+  const limitations = item.limitations || [];
+  const badge = confidence < 60 ? `<span class="badge medium">需要人工确认</span>` : `<span class="badge low">可信度 ${confidence}%</span>`;
+  return `<article class="card ask-card">
+    <div class="card-title">
+      <span>${escapeHtml(item.question || "追问")}</span>
+      ${badge}
+    </div>
+    <p>${escapeHtml(item.answer || "当前上下文无法确认。")}</p>
+    <p><strong>相关文件：</strong>${escapeHtml(files.length ? files.join(", ") : "无明确关联文件")}</p>
+    <p><strong>相关风险：</strong>${escapeHtml(risks.length ? risks.join(", ") : "无明确关联风险")}</p>
+    ${limitations.length ? `<p><strong>限制说明：</strong>${escapeHtml(limitations.join("；"))}</p>` : ""}
+    <div class="inline-actions">
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>
+    </div>
+  </article>`;
 }
 
 function renderOverview(overview, model) {
@@ -961,7 +1099,7 @@ function renderFinalRisk(item) {
       ? "审计模型补充的可能漏检项"
       : "审计后保留";
   return `<article class="card">
-    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${escapeHtml(typeText(item.type))}</span></div>
+    <div class="card-title"><span>${escapeHtml(item.file)}</span><span class="badge ${item.risk_level}">${escapeHtml(typeText(item.type))}</span><button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">\u8ffd\u95ee</button></div>
     <p><strong>问题：</strong>${escapeHtml(item.issue)}</p>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
     <p><strong>初审模型置信度：</strong>${item.reviewer_confidence}%；<strong>审计模型置信度：</strong>${item.auditor_confidence}%；<strong>最终置信度：</strong>${item.final_confidence}%</p>
@@ -983,6 +1121,7 @@ function renderRisk(item) {
     <div class="card-title">
       <span>${escapeHtml(item.file)}</span>
       <span class="badge ${item.risk_level}">${item.risk_level}</span>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(item.id || item.file || "")}">\u8ffd\u95ee</button>
     </div>
     <p><strong>类型：</strong>${escapeHtml(typeText(item.type))}</p>
     <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>

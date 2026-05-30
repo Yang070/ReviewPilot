@@ -7,6 +7,7 @@ import os
 import sys
 
 from reviewpilot.qwen_client import QwenError, test_chat_connection
+from reviewpilot.ask_service import AskError, ask_pr
 from reviewpilot.review_service import ReviewError, deep_audit_review, review_change
 from reviewpilot.rule_checker import RULE_TEMPLATES
 from reviewpilot.user_store import SessionStore, UserError, UserStore
@@ -77,6 +78,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/review/deep-audit":
             self.handle_deep_audit_review()
+            return
+        if path == "/api/ask":
+            self.handle_ask()
             return
         if path == "/api/rules":
             self.handle_add_rule()
@@ -263,6 +267,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"error": str(exc)}, status=400)
         except Exception as exc:
             self.send_json({"error": f"服务端发生未预期错误：{exc}"}, status=500)
+
+    def handle_ask(self):
+        session = self.require_session()
+        if not session:
+            return
+        try:
+            payload = self.read_json()
+            history_id = str(payload.get("history_id", "")).strip()
+            question = str(payload.get("question", "")).strip()
+            model_config_id = str(payload.get("model_config_id", "")).strip()
+            if not history_id:
+                raise AskError("缺少历史记录 ID，无法进行追问。")
+            history = USER_STORE.get_history(session["username"], history_id)
+            model_config = USER_STORE.get_model_config_secret(session["username"], model_config_id or None)
+            answer = ask_pr(history.get("report") or {}, question, model_config)
+            thread = USER_STORE.add_ask_thread(session["username"], history_id, question, answer, model_config)
+            self.send_json({**answer, "ask_thread": thread})
+        except (AskError, UserError) as exc:
+            self.send_json({"error": str(exc)}, status=400)
+        except Exception as exc:
+            self.send_json({"error": f"Ask PR 服务发生未预期错误：{exc}"}, status=500)
 
     def handle_add_rule(self):
         session = self.require_session()

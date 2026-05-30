@@ -43,6 +43,32 @@ class UserStoreTest(unittest.TestCase):
             updated = store.update_model_config("yang070", config["id"], {"model_name": "qwen-plus"})
             self.assertEqual(updated["model_name"], "qwen-plus")
 
+    def test_add_ask_thread_to_history(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = UserStore(root / "users.json", root / "secret.key")
+            store.register("yang070", "", "secret123", "secret123")
+            config = store.add_model_config("yang070", {
+                "provider": "Qwen",
+                "base_url": "",
+                "api_key": "sk-test",
+                "model_name": "qwen-plus",
+                "is_default": True,
+            })
+            model_config = store.get_model_config_secret("yang070", config["id"])
+            history = store.add_history("yang070", {"summary": "ok", "risks": []}, "", model_config)
+            ask = store.add_ask_thread("yang070", history["id"], "哪里要复核？", {
+                "answer": "当前上下文无法确认。",
+                "related_files": ["src/app.py"],
+                "related_risks": ["risk_1"],
+                "confidence": 55,
+                "limitations": ["需要人工复核"],
+            }, model_config)
+            detail = store.get_history("yang070", history["id"])
+            self.assertEqual(ask["history_id"], history["id"])
+            self.assertEqual(len(detail["ask_threads"]), 1)
+            self.assertEqual(detail["ask_threads"][0]["confidence"], 55)
+
     def test_legacy_user_migrates_to_model_config(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -524,6 +524,10 @@ button:hover {
   gap: 8px;
 }
 
+.inline-field {
+  min-width: 220px;
+}
+
 .report-head {
   display: flex;
   justify-content: space-between;
@@ -780,6 +784,52 @@ button:hover {
   font-size: 12px;
 }
 
+.ask-panel {
+  margin-top: 18px;
+}
+
+.ask-panel .section-head {
+  align-items: flex-start;
+}
+
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.suggestion-row button {
+  min-height: 32px;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.ask-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ask-textarea {
+  min-height: 92px;
+  height: 92px;
+  font-family: inherit;
+}
+
+.ask-thread-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ask-card p + p {
+  margin-top: 6px;
+}
+
 .card-title span:first-child {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -858,6 +908,7 @@ button:hover {
   .history-layout,
   .workbench-grid,
   .quick-model-form,
+  .ask-input-row,
   .model-grid,
   .section-grid,
   .metrics {
