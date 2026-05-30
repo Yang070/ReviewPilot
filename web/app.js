@@ -47,12 +47,18 @@ const quickTestModelBtn = document.querySelector("#quickTestModelBtn");
 
 const emptyReport = document.querySelector("#emptyReport");
 const reportContent = document.querySelector("#reportContent");
-const operationStatus = document.querySelector("#operationStatus");
-const operationTitle = document.querySelector("#operationTitle");
-const operationText = document.querySelector("#operationText");
+const progressModal = document.querySelector("#progressModal");
+const progressModalText = document.querySelector("#progressModalText");
+const progressPercent = document.querySelector("#progressPercent");
+const progressStages = document.querySelector("#progressStages");
 const progressBar = document.querySelector("#progressBar");
 const reportTitle = document.querySelector("#reportTitle");
 const summaryText = document.querySelector("#summaryText");
+const summaryLine = document.querySelector("#summaryLine");
+const toolbarPrLabel = document.querySelector("#toolbarPrLabel");
+const toolbarModelLabel = document.querySelector("#toolbarModelLabel");
+const toolbarModeLabel = document.querySelector("#toolbarModeLabel");
+const reanalyzeBtn = document.querySelector("#reanalyzeBtn");
 const riskBadge = document.querySelector("#riskBadge");
 const fileCount = document.querySelector("#fileCount");
 const additionCount = document.querySelector("#additionCount");
@@ -84,6 +90,7 @@ const changedFilesNav = document.querySelector("#changedFilesNav");
 const linkedRiskList = document.querySelector("#linkedRiskList");
 const diffFileHeader = document.querySelector("#diffFileHeader");
 const diffViewer = document.querySelector("#diffViewer");
+const riskDetailDrawer = document.querySelector("#riskDetailDrawer");
 
 const modelForm = document.querySelector("#modelForm");
 const modelFormTitle = document.querySelector("#modelFormTitle");
@@ -147,10 +154,22 @@ let selectedHistoryId = "";
 let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
 let progressTimer = null;
+let progressState = null;
 let activeInputTab = "url";
 let activeDiffFile = "";
 let expandedAnnotations = new Set();
 let expandedFileLevel = new Set();
+let selectedAnnotation = null;
+
+const reviewProgressStages = [
+  {key: "fetch_pr", label: "获取 PR 信息"},
+  {key: "parse_diff", label: "解析文件变更"},
+  {key: "rank_files", label: "计算重点文件"},
+  {key: "rule_check", label: "执行规则预检"},
+  {key: "reviewer", label: "Reviewer 模型初审"},
+  {key: "auditor", label: "Auditor 模型复核"},
+  {key: "finalize", label: "生成最终报告"},
+];
 
 const providerDefaults = {
   OpenAI: "https://api.openai.com/v1",
@@ -224,6 +243,8 @@ document.addEventListener("click", (event) => {
     const key = marker.dataset.annotationKey;
     if (expandedAnnotations.has(key)) expandedAnnotations.delete(key);
     else expandedAnnotations.add(key);
+    const annotation = findAnnotationForDrawer(marker.dataset.annotationFile, marker.dataset.annotationLine);
+    if (annotation) renderRiskDetailDrawer(annotation);
     renderDiffReview(lastReport);
   }
   const fileToggle = event.target.closest("[data-file-level-toggle]");
@@ -353,6 +374,7 @@ testModelBtn.addEventListener("click", async () => {
 resetModelFormBtn.addEventListener("click", resetModelForm);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
+reanalyzeBtn.addEventListener("click", () => reviewBtn.click());
 
 quickProvider.addEventListener("change", () => {
   if (!quickBaseUrl.value || Object.values(providerDefaults).includes(quickBaseUrl.value)) {
@@ -418,8 +440,12 @@ linkedRiskList.addEventListener("click", (event) => {
   activeDiffFile = item.dataset.riskFile;
   if (item.dataset.riskLine) {
     expandedAnnotations.add(annotationKey(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId));
+    const annotation = findAnnotationForDrawer(item.dataset.riskFile, item.dataset.riskLine, item.dataset.riskId);
+    if (annotation) renderRiskDetailDrawer(annotation);
   } else {
     expandedFileLevel.add(item.dataset.riskFile);
+    const annotation = findFileLevelAnnotation(item.dataset.riskFile, item.dataset.riskId);
+    if (annotation) renderRiskDetailDrawer(annotation);
   }
   renderDiffReview(lastReport, Number(item.dataset.riskLine || 0));
 });
@@ -895,34 +921,80 @@ function renderHistoryDetail(item) {
   renderAskPanel("history", selectedHistoryId, historyAskThreadsState);
 }
 
+function selectedModelLabel() {
+  if (analysisMode.value === "deep-audit") {
+    const reviewer = reviewerModelSelect.selectedOptions[0]?.textContent || "初审模型未选择";
+    const auditor = auditorModelSelect.selectedOptions[0]?.textContent || "审计模型未选择";
+    return `${reviewer} / ${auditor}`;
+  }
+  return modelConfigSelect.selectedOptions[0]?.textContent || "未选择模型";
+}
+
+function analysisModeText(value) {
+  const map = {
+    fast: "快速分析",
+    "deep-audit": "深度审计",
+    deep_audit: "深度审计",
+    compare: "多模型对比",
+  };
+  return map[value] || "快速分析";
+}
+
+function compactPrLabel(overview, data) {
+  if (data.pr_url || data.prUrl) return shortPrUrl(data.pr_url || data.prUrl);
+  if (overview.repository) return overview.repository;
+  if (overview.title) return overview.title;
+  return "手动粘贴 diff";
+}
+
+function shortPrUrl(value) {
+  const match = String(value || "").match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  return match ? `${match[1]}/${match[2]}#${match[3]}` : String(value || "手动粘贴 diff");
+}
+
+function deriveReportRiskLevel(risks) {
+  if (risks.some(item => item.risk_level === "high")) return "high";
+  if (risks.some(item => item.risk_level === "medium")) return "medium";
+  return risks.length ? "low" : "low";
+}
+
 function renderReport(data) {
   lastReport = data;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
   setReportTab("code");
   const fileChanges = data.file_changes || data.files || [];
-  const risks = data.risks || data.findings || [];
-  const modules = data.changed_modules || [];
-  const comments = data.review_comments || [];
+  const risks = getReportRisks(data);
+  const modules = data.final_result?.changed_modules || data.changed_modules || [];
+  const comments = data.final_result?.review_comments || data.review_comments || [];
   const priorityFiles = data.risk_ranking || data.priority_files || [];
   const ruleFindings = data.rule_findings || [];
   const coverage = data.context_coverage || {};
   const overview = data.pr_overview || {};
   const additions = fileChanges.reduce((sum, file) => sum + Number(file.additions || 0), 0);
   const deletions = fileChanges.reduce((sum, file) => sum + Number(file.deletions || 0), 0);
+  const analyzedFiles = coverage.analyzed_files ?? 0;
+  const score = data.overall_score ?? 0;
+  const modelLabel = data.model || selectedModelLabel();
+  const modeLabel = analysisModeText(data.review_mode || data.analysisMode || analysisMode.value);
 
   reportTitle.textContent = overview.title || data.pr?.title || "评审报告";
-  summaryText.textContent = data.summary || "模型没有返回摘要。";
+  summaryText.textContent = data.final_result?.summary || data.summary || "模型没有返回摘要。";
   lastSummary = summaryText.textContent;
-  riskBadge.textContent = data.riskLevel || "low";
-  riskBadge.className = `badge ${data.riskLevel || "low"}`;
+  const reportRiskLevel = deriveReportRiskLevel(risks);
+  riskBadge.textContent = riskLevelText(reportRiskLevel);
+  riskBadge.className = `badge ${reportRiskLevel}`;
   fileCount.textContent = overview.changed_files ?? fileChanges.length;
   additionCount.textContent = overview.additions ?? additions;
   deletionCount.textContent = overview.deletions ?? deletions;
-  evidenceCount.textContent = coverage.analyzed_files ?? 0;
+  evidenceCount.textContent = analyzedFiles;
   findingCount.textContent = risks.length;
-  overallScore.textContent = data.overall_score ?? 0;
-  overviewBox.innerHTML = renderOverview(overview, data.model);
+  overallScore.textContent = score;
+  toolbarPrLabel.textContent = compactPrLabel(overview, data);
+  toolbarModelLabel.textContent = modelLabel;
+  toolbarModeLabel.textContent = modeLabel;
+  summaryLine.textContent = `${overview.changed_files ?? fileChanges.length} 个文件 · +${overview.additions ?? additions} / -${overview.deletions ?? deletions} · ${risks.length} 条风险 · ${analyzedFiles} 个深度分析文件 · 综合评分 ${score}`;
+  overviewBox.innerHTML = renderOverview(overview, modelLabel);
   coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? fileChanges.map(renderFile).join("") : empty("暂无文件");
   priorityFilesBox.innerHTML = priorityFiles.length ? priorityFiles.map(renderPriorityFile).join("") : empty("暂无风险排序结果");
@@ -1200,7 +1272,7 @@ function buildLineAnnotations(report) {
 function getReportRisks(report) {
   const finalRisks = report?.final_result?.final_risks || [];
   if (finalRisks.length) return finalRisks;
-  return report?.risks || [];
+  return report?.risks || report?.findings || [];
 }
 
 function addAnnotation(byFile, fileLevel, annotation) {
@@ -1226,6 +1298,7 @@ function riskToAnnotation(risk) {
     line_end: risk.line_end || risk.line_start,
     side: risk.side || "new",
     level: risk.risk_level || "medium",
+    type: risk.type || "",
     title: view.title,
     summary: view.issueText,
     why_it_matters: view.whyItMatters,
@@ -1273,7 +1346,7 @@ function renderAnnotationMarker(filename, lineNo, annotations) {
   const expanded = annotations.some(item => expandedAnnotations.has(annotationKey(filename, lineNo, item.id)));
   const label = riskCount ? `⚠ ${annotations.length}` : `• ${annotations.length}`;
   const title = annotations.map(item => item.summary).join("\n");
-  return `<button class="annotation-marker ${level} ${expanded ? "active" : ""}" type="button" title="${escapeHtmlAttr(title)}" data-annotation-key="${escapeHtmlAttr(key)}">${label}</button>`;
+  return `<button class="annotation-marker ${level} ${expanded ? "active" : ""}" type="button" title="${escapeHtmlAttr(title)}" data-annotation-key="${escapeHtmlAttr(key)}" data-annotation-file="${escapeHtmlAttr(filename)}" data-annotation-line="${lineNo}">${label}</button>`;
 }
 
 function renderInlineAnnotation(annotation, showAudit) {
@@ -1291,6 +1364,57 @@ function renderInlineAnnotation(annotation, showAudit) {
     <p><strong>依据：</strong>${escapeHtml(annotation.evidence || "当前提示没有精确证据文本。")}</p>
     ${showAudit && annotation.audit_note ? `<p class="audit-note"><strong>审计：</strong>${escapeHtml(annotation.audit_note)}</p>` : ""}
   </article>`;
+}
+
+function findAnnotationForDrawer(file, line, id = "") {
+  if (!lastReport || !file || !line) return null;
+  const index = buildLineAnnotations(lastReport);
+  const items = index.byFile[file]?.[String(line)] || [];
+  return id ? items.find(item => item.id === id) || items[0] : items[0];
+}
+
+function findFileLevelAnnotation(file, id = "") {
+  if (!lastReport || !file) return null;
+  const index = buildLineAnnotations(lastReport);
+  const items = index.fileLevel[file] || [];
+  return id ? items.find(item => item.id === id) || items[0] : items[0];
+}
+
+function renderRiskDetailDrawer(annotation) {
+  if (!riskDetailDrawer || !annotation) return;
+  selectedAnnotation = annotation;
+  const levelLabel = annotation.kind === "rule" ? "规则预检" : riskLevelText(annotation.level);
+  const typeLabel = annotation.kind === "rule" ? "候选关注点" : typeText(annotation.type || annotation.audit_status || "");
+  const location = annotation.line_start ? `${annotation.file}:${annotation.line_start}` : annotation.file;
+  riskDetailDrawer.innerHTML = `<section class="drawer-card">
+    <div class="drawer-head">
+      <span class="badge ${annotation.level || "info"}">${escapeHtml(levelLabel)}</span>
+      <small>${escapeHtml(typeLabel)}</small>
+    </div>
+    <h3>${escapeHtml(annotation.title)}</h3>
+    <p class="drawer-location">${escapeHtml(location)}</p>
+    <div class="drawer-block">
+      <strong>问题说明</strong>
+      <p>${escapeHtml(annotation.summary)}</p>
+    </div>
+    <div class="drawer-block">
+      <strong>为什么值得关注</strong>
+      <p>${escapeHtml(annotation.why_it_matters)}</p>
+    </div>
+    <div class="drawer-block">
+      <strong>建议</strong>
+      <p>${escapeHtml(annotation.suggestion)}</p>
+    </div>
+    <div class="drawer-block">
+      <strong>依据</strong>
+      <p>${escapeHtml(annotation.evidence || "这条提示暂时没有精确到某一行的证据文本。")}</p>
+    </div>
+    ${annotation.audit_note ? `<div class="drawer-block audit-note"><strong>审计结果</strong><p>${escapeHtml(annotation.audit_note)}</p></div>` : ""}
+    <div class="drawer-actions">
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(annotation.copyable_comment || annotation.suggestion)}">复制 Review Comment</button>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(annotation.id)}">Ask PR 追问</button>
+    </div>
+  </section>`;
 }
 
 function renderFileLevelAnnotations(file, showAudit, showRules) {
@@ -1725,35 +1849,74 @@ async function rawFetch(path, options = {}) {
 function startProgress(title, text) {
   reportContent.classList.remove("hidden");
   emptyReport.classList.add("hidden");
-  operationStatus.classList.remove("hidden");
-  operationTitle.textContent = title;
-  operationText.textContent = text;
-  progressBar.style.width = "12%";
+  progressModal.classList.remove("hidden");
+  progressModalText.textContent = text || "系统正在获取代码变更、执行规则预检，并生成 AI Review 报告。";
   clearInterval(progressTimer);
-  let value = 12;
+  setProgressState({task_id: "", progress: 10, current_stage: "fetch_pr"});
   progressTimer = setInterval(() => {
-    value = Math.min(82, value + 6);
-    progressBar.style.width = `${value}%`;
-  }, 500);
+    const next = Math.min(85, (progressState?.progress || 10) + 15);
+    setProgressState({progress: next, current_stage: progressStageForPercent(next)});
+  }, 1000);
 }
 
 function updateProgress(value, text) {
-  operationText.textContent = text;
-  progressBar.style.width = `${value}%`;
+  if (text) progressModalText.textContent = text;
+  setProgressState({progress: value, current_stage: progressStageForPercent(value)});
 }
 
 function finishProgress(title, text) {
   clearInterval(progressTimer);
-  operationTitle.textContent = title;
-  operationText.textContent = text;
-  progressBar.style.width = "100%";
-  setTimeout(() => operationStatus.classList.add("hidden"), 1800);
+  progressModalText.textContent = text || "报告已生成。";
+  setProgressState({progress: 100, current_stage: "finalize"});
+  setTimeout(() => progressModal.classList.add("hidden"), 500);
 }
 
 function stopProgress() {
   clearInterval(progressTimer);
-  operationStatus.classList.add("hidden");
-  progressBar.style.width = "0";
+  setProgressState({progress: progressState?.progress || 0, current_stage: progressState?.current_stage || "fetch_pr", failed: true});
+  setTimeout(() => progressModal.classList.add("hidden"), 900);
+}
+
+function progressStageForPercent(value) {
+  if (value >= 85) return "finalize";
+  if (value >= 70) return "auditor";
+  if (value >= 55) return "reviewer";
+  if (value >= 40) return "rule_check";
+  if (value >= 25) return "rank_files";
+  if (value >= 15) return "parse_diff";
+  return "fetch_pr";
+}
+
+function setProgressState(partial) {
+  const current = partial.current_stage || progressState?.current_stage || "fetch_pr";
+  const currentIndex = reviewProgressStages.findIndex(stage => stage.key === current);
+  progressState = {
+    task_id: partial.task_id ?? progressState?.task_id ?? "",
+    progress: partial.progress ?? progressState?.progress ?? 0,
+    current_stage: current,
+    stages: reviewProgressStages.map((stage, index) => ({
+      ...stage,
+      status: partial.failed && stage.key === current
+        ? "failed"
+        : index < currentIndex || partial.progress >= 100
+          ? "done"
+          : index === currentIndex
+            ? "running"
+            : "pending",
+    })),
+  };
+  renderProgressModal();
+}
+
+function renderProgressModal() {
+  const progress = Math.max(0, Math.min(100, Number(progressState?.progress || 0)));
+  progressPercent.textContent = `${Math.round(progress)}%`;
+  progressBar.style.width = `${progress}%`;
+  progressStages.innerHTML = (progressState?.stages || []).map(stage => {
+    const icon = stage.status === "done" ? "✓" : stage.status === "running" ? "⏳" : stage.status === "failed" ? "!" : "○";
+    const label = stage.status === "done" ? "已完成" : stage.status === "running" ? "进行中" : stage.status === "failed" ? "失败" : "等待中";
+    return `<li class="${stage.status}"><span>${icon}</span><strong>${stage.label}</strong><small>${label}</small></li>`;
+  }).join("");
 }
 
 async function copyText(text, successText) {
