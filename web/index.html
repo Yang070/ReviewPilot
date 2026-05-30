@@ -33,9 +33,14 @@
           <small id="sideAnalysisMode">快速分析</small>
         </div>
         <div class="userbar">
-          <span class="status hidden" id="userLabel"></span>
           <div class="menu hidden" id="userMenu">
-            <button id="menuBtn" type="button">账号菜单</button>
+            <button id="menuBtn" class="account-menu-button" type="button">
+              <span class="account-kicker">当前账号</span>
+              <span class="account-main">
+                <span id="accountAvatar" class="account-avatar">--</span>
+                <strong id="accountName">未登录</strong>
+              </span>
+            </button>
             <div class="menu-list hidden" id="menuList">
               <button data-route="/settings/models" type="button">模型设置</button>
               <button data-route="/settings/rules" type="button">规则管理</button>
@@ -101,7 +106,6 @@
         <section class="workbench panel">
           <div class="workbench-head">
             <div>
-              <span class="eyebrow">Review Workbench</span>
               <h2>PR Review 工作台</h2>
               <p>在这里配置 API、选择模型、提交 PR，并查看本次分析状态。</p>
             </div>

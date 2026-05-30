@@ -2724,3 +2724,73 @@ button:hover {
 .global-sidebar .menu-list button:hover {
   background: rgba(124, 58, 237, 0.16);
 }
+
+/* Account menu lives in the top-right workbench area */
+.global-sidebar .userbar {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 70;
+  width: auto;
+  align-self: auto;
+}
+
+.global-sidebar .menu {
+  width: auto;
+}
+
+.global-sidebar #menuBtn.account-menu-button {
+  display: grid;
+  justify-content: stretch;
+  gap: 7px;
+  width: auto;
+  min-width: 138px;
+  min-height: 54px;
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: rgba(11, 21, 36, 0.82);
+  text-align: left;
+}
+
+.account-kicker {
+  color: var(--weak);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.account-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.account-avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.account-main strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-sidebar .menu-list {
+  top: calc(100% + 8px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: 180px;
+}

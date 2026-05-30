@@ -10,10 +10,11 @@ const views = {
 const loginForm = document.querySelector("#loginForm");
 const registerForm = document.querySelector("#registerForm");
 const logoutBtn = document.querySelector("#logoutBtn");
-const userLabel = document.querySelector("#userLabel");
 const userMenu = document.querySelector("#userMenu");
 const menuBtn = document.querySelector("#menuBtn");
 const menuList = document.querySelector("#menuList");
+const accountAvatar = document.querySelector("#accountAvatar");
+const accountName = document.querySelector("#accountName");
 const brandBtn = document.querySelector("#brandBtn");
 const messageDialog = document.querySelector("#messageDialog");
 const messageTitle = document.querySelector("#messageTitle");
@@ -624,8 +625,17 @@ async function loadModelConfigs() {
 function renderAuthState() {
   const loggedIn = Boolean(currentUser);
   userMenu.classList.toggle("hidden", !loggedIn);
-  userLabel.classList.toggle("hidden", !loggedIn);
-  userLabel.textContent = loggedIn ? `当前账号：${currentUser.username}` : "";
+  const username = loggedIn ? currentUser.username : "未登录";
+  accountName.textContent = username;
+  accountAvatar.textContent = accountInitials(username);
+}
+
+function accountInitials(username) {
+  const clean = String(username || "").trim();
+  if (!clean) return "--";
+  const parts = clean.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return clean.slice(0, 2).toUpperCase();
 }
 
 function navigate(path) {
