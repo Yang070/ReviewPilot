@@ -2655,3 +2655,43 @@ button:hover {
   border-color: rgba(124, 58, 237, 0.72);
   background: rgba(124, 58, 237, 0.18);
 }
+
+/* Sidebar account menu should open inside the viewport */
+.global-sidebar .userbar {
+  width: 100%;
+}
+
+.global-sidebar .menu {
+  width: 100%;
+}
+
+.global-sidebar #menuBtn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.global-sidebar .menu-list {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: min(192px, calc(220px - 28px));
+  min-width: 0;
+  max-height: min(260px, calc(100vh - 96px));
+  overflow-y: auto;
+  border-color: var(--line);
+  background: rgba(15, 27, 45, 0.98);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42);
+}
+
+.global-sidebar .menu-list button {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.global-sidebar .menu-list button:hover {
+  background: rgba(124, 58, 237, 0.16);
+}
