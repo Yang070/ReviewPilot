@@ -1,12 +1,16 @@
-from .diff_parser import build_evidence, parse_diff, summarize_files
+from .diff_parser import build_evidence, build_selected_context, parse_diff, summarize_files, summarize_priority_files
 from .github_client import GitHubError, fetch_public_pr
 from .qwen_client import QwenError, call_qwen
+from .rule_checker import run_rule_checks
 from .user_store import normalize_model
 import json
 
 
 class ReviewError(Exception):
     pass
+
+
+MAX_EVIDENCE_LINES = 100
 
 
 def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict:
@@ -27,43 +31,66 @@ def review_change(pr_url: str, diff_text: str, api_key: str, model: str) -> dict
         raise ReviewError("没有从 diff 中解析到变更文件。")
 
     file_changes = summarize_files(files)
-    evidence, evidence_truncated = build_evidence(files)
-    context_truncated = evidence_truncated or len(diff_text) > 120_000
-    messages = build_messages(pr, file_changes, evidence, context_truncated)
+    priority = summarize_priority_files(files)
+    evidence, evidence_truncated = build_evidence(files, MAX_EVIDENCE_LINES)
+    selected_context, context_truncated = build_selected_context(files)
+    rule_findings = run_rule_checks(files)
+    context_coverage = build_context_coverage(file_changes, selected_context, evidence_truncated or context_truncated)
+    pr_overview = build_pr_overview(pr, file_changes)
+    messages = build_messages(
+        pr_overview,
+        file_changes,
+        priority,
+        context_coverage,
+        evidence,
+        selected_context,
+        rule_findings,
+    )
 
     try:
         report = call_qwen(messages, api_key, model)
     except QwenError as exc:
         raise ReviewError(str(exc)) from exc
 
-    return normalize_report(report, pr, file_changes, evidence, model, context_truncated)
+    return normalize_report(report, pr_overview, file_changes, priority, context_coverage, rule_findings, model)
 
 
-def build_messages(pr: dict, file_changes: list[dict], evidence: list[dict], context_truncated: bool) -> list[dict]:
+def build_messages(
+    pr_overview: dict,
+    file_changes: list[dict],
+    priority_files: list[dict],
+    context_coverage: dict,
+    evidence: list[dict],
+    selected_context: list[dict] | None = None,
+    rule_findings: list[dict] | None = None,
+) -> list[dict]:
     system = (
         "You are ReviewPilot, an evidence-first AI PR reviewer. "
-        "Use only the provided PR metadata, file_changes and evidence. "
+        "Use only the provided PR overview, risk-aware file ranking, context coverage, selected diff context, "
+        "rule findings, and evidence. "
         "Do not invent files, APIs, database tables, dependencies, release status, or line numbers. "
-        "Return JSON only."
+        "Return Chinese JSON only."
     )
     user = {
-        "task": "生成中文 PR Review 报告。必须覆盖主要业务变更，但不要为了凑数制造风险。",
+        "task": "生成中文 PR Review 报告，体现风险感知型 AI PR Review 流程。",
         "rules": [
-            "summary 概括整个 PR 的主要变化。",
-            "changed_modules 必须覆盖主要业务变更；即使没有风险，也要总结该模块做了什么。",
-            "risks 只列有明确 diff 证据的问题；没有证据就不要输出。",
-            "review_comments 给出可执行的 Review 建议，可以包含测试建议、可维护性建议和人工确认点。",
-            "package-lock.json、yarn.lock、pnpm-lock.yaml 只作为依赖背景，不要作为主要 Review 对象。",
-            "不要基于模型记忆判断第三方依赖版本是 alpha、beta 或 stable，除非 diff 或输入证据明确说明。",
-            "如果 context_truncated 为 true，必须在 summary 或 review_comments 中提示分析可能不完整。",
+            "summary 必须总结完整 PR 变更，不只总结 risks。",
+            "changed_modules 必须覆盖主要业务模块；即使没有风险，也要总结模块变更。",
+            "必须结合 selected_context 与 rule_findings，但不要机械照抄规则结果。",
+            "risks 只输出有明确 evidence 或 rule_finding 支撑的问题；不要为了凑数量输出泛泛建议。",
+            "type 只能是 confirmed_issue、potential_risk、needs_human_check。",
+            "没有明确证据的问题不要输出为 confirmed_issue。",
+            "不确定的问题标记为 needs_human_check。",
+            "不要基于过时模型记忆判断第三方库版本状态。",
+            "不要把 package-lock.json、yarn.lock、pnpm-lock.yaml 作为主要风险来源。",
+            "如果 context_coverage.context_truncated 为 true，必须在 limitations 中说明覆盖范围和人工复核建议。",
         ],
-        "pr": {
-            "title": pr.get("title", ""),
-            "body": pr.get("body", ""),
-            "url": pr.get("html_url", ""),
-        },
-        "context_truncated": context_truncated,
+        "pr_overview": pr_overview,
         "file_changes": file_changes,
+        "priority_files": priority_files,
+        "context_coverage": context_coverage,
+        "selected_context": selected_context or [],
+        "rule_findings": rule_findings or [],
         "evidence": evidence,
         "schema": {
             "summary": "string",
@@ -71,25 +98,24 @@ def build_messages(pr: dict, file_changes: list[dict], evidence: list[dict], con
                 "name": "module or area name",
                 "files": ["changed file path"],
                 "summary": "what changed in this module",
-                "risk_level": "low | medium | high",
             }],
             "risks": [{
                 "file": "changed file path",
-                "line": "line number or null",
-                "severity": "low | medium | high",
-                "type": "bug | security | test | maintainability | performance | dependency",
+                "risk_level": "low | medium | high",
+                "type": "confirmed_issue | potential_risk | needs_human_check",
                 "evidence": "exact diff evidence",
-                "message": "why this is a real risk",
+                "issue": "what is wrong",
+                "reason": "why this is a real risk",
                 "suggestion": "concrete fix or check",
                 "confidence": "number between 0 and 1",
             }],
             "review_comments": [{
                 "file": "changed file path or null",
-                "comment": "review suggestion in Chinese",
-                "type": "test | maintainability | question | praise | follow_up",
+                "comment": "copyable review comment in Chinese",
+                "type": "test | maintainability | needs_human_check | follow_up",
             }],
             "overall_score": "integer from 0 to 100",
-            "context_truncated": "boolean",
+            "limitations": ["string"],
         },
     }
     return [
@@ -98,68 +124,106 @@ def build_messages(pr: dict, file_changes: list[dict], evidence: list[dict], con
     ]
 
 
+def build_pr_overview(pr: dict, file_changes: list[dict]) -> dict:
+    return {
+        "title": pr.get("title", "") or "粘贴 diff 分析",
+        "url": pr.get("html_url", ""),
+        "changed_files": len(file_changes),
+        "additions": sum(file["additions"] for file in file_changes),
+        "deletions": sum(file["deletions"] for file in file_changes),
+    }
+
+
+def build_context_coverage(file_changes: list[dict], context_items: list[dict], truncated: bool) -> dict:
+    analyzed = sorted({
+        item["file"] for item in context_items
+        if item.get("mode", "deep") == "deep" and item.get("file")
+    })
+    skipped = [file["filename"] for file in file_changes if file["filename"] not in analyzed]
+    return {
+        "total_files": len(file_changes),
+        "analyzed_files": len(analyzed),
+        "analyzed_file_list": analyzed,
+        "skipped_files": skipped,
+        "context_truncated": bool(truncated),
+        "strategy": (
+            "风险感知型上下文选择：先为每个文件计算 risk_score，再按分数从高到低选择重点上下文；"
+            "高风险源代码保留更多 patch，低风险文件仅保留摘要；lock 文件、dist/build 产物和静态资源默认不进入深度 AI Review。"
+        ),
+    }
+
+
 def normalize_report(
     report: dict,
-    pr: dict,
+    pr_overview: dict,
     file_changes: list[dict],
-    evidence: list[dict],
+    priority_files: list[dict],
+    context_coverage: dict,
+    rule_findings: list[dict],
     model: str,
-    context_truncated: bool,
 ) -> dict:
-    file_paths = {file["path"] for file in file_changes}
-    risks = normalize_risks(report.get("risks", report.get("findings", [])), file_paths)
+    file_paths = {file["filename"] for file in file_changes}
+    risks = normalize_risks(report.get("risks", []), file_paths)
     changed_modules = normalize_changed_modules(report.get("changed_modules", []), file_paths, file_changes)
-    review_comments = normalize_review_comments(report.get("review_comments", report.get("testSuggestions", [])), file_paths)
+    review_comments = normalize_review_comments(report.get("review_comments", []), file_paths)
+    limitations = normalize_limitations(report.get("limitations", []), context_coverage)
 
     return {
         "pr": {
-            "title": pr.get("title", ""),
-            "url": pr.get("html_url", ""),
+            "title": pr_overview["title"],
+            "url": pr_overview.get("url", ""),
         },
+        "pr_overview": pr_overview,
         "summary": report.get("summary", ""),
         "riskLevel": max_risk_level(risks),
         "model": model,
         "file_changes": file_changes,
         "files": file_changes,
+        "priority_files": priority_files,
+        "risk_ranking": priority_files,
+        "context_coverage": context_coverage,
+        "rule_findings": rule_findings,
         "changed_modules": changed_modules,
         "risks": risks,
         "findings": risks,
         "review_comments": review_comments,
         "testSuggestions": [item["comment"] for item in review_comments if item.get("type") == "test"],
         "overall_score": normalize_score(report.get("overall_score", 80)),
-        "context_truncated": bool(report.get("context_truncated", context_truncated)),
-        "evidenceCount": len(evidence),
-        "rawEvidencePreview": evidence[:12],
+        "limitations": limitations,
+        "context_truncated": context_coverage["context_truncated"],
     }
 
 
 def normalize_risks(items: list, file_paths: set[str]) -> list[dict]:
     risks = []
+    allowed_types = {"confirmed_issue", "potential_risk", "needs_human_check"}
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         file = str(item.get("file", ""))
         if file not in file_paths:
             continue
-        if is_lock_file(file) and not str(item.get("evidence", "")).strip():
-            continue
         if not str(item.get("evidence", "")).strip():
             continue
-        severity = item.get("severity", "low")
-        if severity not in {"low", "medium", "high"}:
-            severity = "low"
+        risk_level = item.get("risk_level", item.get("severity", "low"))
+        if risk_level not in {"low", "medium", "high"}:
+            risk_level = "low"
         confidence = item.get("confidence", 0.5)
         try:
             confidence = max(0, min(1, float(confidence)))
         except (TypeError, ValueError):
             confidence = 0.5
+        risk_type = item.get("type", "potential_risk")
+        if risk_type not in allowed_types:
+            risk_type = "potential_risk"
         risks.append({
             "file": file,
-            "line": item.get("line"),
-            "severity": severity,
-            "type": item.get("type", "maintainability"),
+            "risk_level": risk_level,
+            "severity": risk_level,
+            "type": risk_type,
             "evidence": item.get("evidence", ""),
-            "message": item.get("message", ""),
+            "issue": item.get("issue", item.get("message", "")),
+            "reason": item.get("reason", ""),
             "suggestion": item.get("suggestion", ""),
             "confidence": confidence,
         })
@@ -174,30 +238,25 @@ def normalize_changed_modules(items: list, file_paths: set[str], file_changes: l
         files = [file for file in item.get("files", []) if file in file_paths]
         if not files:
             continue
-        risk_level = item.get("risk_level", "low")
-        if risk_level not in {"low", "medium", "high"}:
-            risk_level = "low"
         modules.append({
             "name": item.get("name", "未命名模块"),
             "files": files,
             "summary": item.get("summary", ""),
-            "risk_level": risk_level,
         })
 
     if modules:
         return modules
 
-    by_category = {}
+    grouped = {}
     for file in file_changes:
         if file.get("isLockFile"):
             continue
-        by_category.setdefault(file["category"], []).append(file["path"])
+        grouped.setdefault(file["category"], []).append(file["filename"])
     return [{
         "name": category,
         "files": paths,
         "summary": "该区域存在代码变更，模型未返回模块总结，已由后端补充展示。",
-        "risk_level": "low",
-    } for category, paths in by_category.items()]
+    } for category, paths in grouped.items()]
 
 
 def normalize_review_comments(items: list, file_paths: set[str]) -> list[dict]:
@@ -222,10 +281,29 @@ def normalize_review_comments(items: list, file_paths: set[str]) -> list[dict]:
     return comments
 
 
+def normalize_limitations(items: list, context_coverage: dict) -> list[str]:
+    limitations = [str(item).strip() for item in items if str(item).strip()] if isinstance(items, list) else []
+    limitations.append("AI Review 只能辅助发现问题，不能替代人工 Review 和测试验证。")
+    if context_coverage["context_truncated"]:
+        limitations.append(
+            f"本次共有 {context_coverage['total_files']} 个变更文件，模型重点分析了 "
+            f"{context_coverage['analyzed_files']} 个文件；由于上下文较大，系统按文件优先级筛选了重点内容。"
+        )
+    if context_coverage["skipped_files"]:
+        skipped = context_coverage["skipped_files"]
+        sample = "、".join(skipped[:5])
+        suffix = f" 等 {len(skipped)} 个文件" if len(skipped) > 5 else ""
+        limitations.append(
+            f"本次有 {len(skipped)} 个低优先级文件未进入模型重点上下文：{sample}{suffix}。"
+            "这些文件通常是 lock 文件、构建产物或静态资源，建议人工快速确认是否存在异常变更。"
+        )
+    return dedupe(limitations)
+
+
 def max_risk_level(risks: list[dict]) -> str:
-    if any(item["severity"] == "high" for item in risks):
+    if any(item["risk_level"] == "high" for item in risks):
         return "high"
-    if any(item["severity"] == "medium" for item in risks):
+    if any(item["risk_level"] == "medium" for item in risks):
         return "medium"
     return "low"
 
@@ -237,6 +315,11 @@ def normalize_score(value) -> int:
         return 80
 
 
-def is_lock_file(path: str) -> bool:
-    lowered = path.lower()
-    return lowered.endswith(("package-lock.json", "yarn.lock", "pnpm-lock.yaml"))
+def dedupe(items: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
