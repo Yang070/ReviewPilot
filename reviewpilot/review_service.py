@@ -12,6 +12,7 @@ class ReviewError(Exception):
 
 
 MAX_EVIDENCE_LINES = 100
+DEEP_AUDIT_MODEL_TIMEOUT_SECONDS = 180
 
 
 def review_change(
@@ -674,11 +675,12 @@ def deep_audit_review(
             normalize_model(reviewer_model),
             reviewer_base,
             reviewer_provider,
+            timeout=DEEP_AUDIT_MODEL_TIMEOUT_SECONDS,
         )
     except QwenError as exc:
         raise ReviewError(f"初审模型调用失败，请检查模型配置或 API Key：{exc}") from exc
 
-    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"])
+    reviewer_result = normalize_reviewer_result(reviewer_raw, context["file_changes"], context["file_diffs"])
     warning = ""
     try:
         auditor_result = call_chat_model(
@@ -687,6 +689,7 @@ def deep_audit_review(
             normalize_model(auditor_model),
             auditor_base,
             auditor_provider,
+            timeout=DEEP_AUDIT_MODEL_TIMEOUT_SECONDS,
         )
     except QwenError as exc:
         raw_text = getattr(exc, "raw_text", "")
@@ -719,6 +722,7 @@ def deep_audit_review(
         "model": f"初审：{reviewer_display}；审计：{auditor_display}",
         "pr_overview": context["pr_overview"],
         "file_changes": context["file_changes"],
+        "file_diffs": context["file_diffs"],
         "files": context["file_changes"],
         "priority_files": context["priority_files"],
         "risk_ranking": context["priority_files"],
