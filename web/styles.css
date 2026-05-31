@@ -25,6 +25,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -87,6 +88,30 @@ p,
   color: var(--muted);
 }
 
+.hidden {
+  display: none !important;
+}
+
+.userbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(300px, 420px));
+  gap: 18px;
+  align-items: start;
+}
+
+.auth-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.4fr);
@@ -122,6 +147,7 @@ p,
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -133,6 +159,11 @@ textarea {
 input {
   height: 40px;
   padding: 0 12px;
+}
+
+select {
+  height: 40px;
+  padding: 0 10px;
 }
 
 textarea {
@@ -148,6 +179,13 @@ textarea {
 .or-line {
   margin: 14px 0;
   font-size: 13px;
+}
+
+.model-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .actions {
@@ -214,7 +252,7 @@ button:hover {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -244,6 +282,13 @@ button:hover {
   gap: 16px;
 }
 
+.columns > section,
+.card,
+.report-panel,
+.stack {
+  min-width: 0;
+}
+
 .stack {
   display: grid;
   gap: 10px;
@@ -261,6 +306,28 @@ button:hover {
 .card p,
 .tests li {
   color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.card-title span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.section-gap {
+  margin-top: 18px;
+}
+
+.notice {
+  margin-bottom: 18px;
+  border: 1px solid #fdb022;
+  border-radius: 8px;
+  background: #fffaeb;
+  color: #93370d;
+  padding: 12px;
   line-height: 1.5;
 }
 
@@ -281,8 +348,43 @@ button:hover {
   text-align: center;
 }
 
+.settings-dialog,
+.message-dialog {
+  width: min(520px, calc(100% - 32px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+  color: var(--text);
+}
+
+.settings-dialog::backdrop,
+.message-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-dialog form,
+.message-box {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.message-box p {
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 @media (max-width: 980px) {
   .workspace,
+  .auth-grid,
+  .model-grid,
   .columns,
   .metrics {
     grid-template-columns: 1fr;

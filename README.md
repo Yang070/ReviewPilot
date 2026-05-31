@@ -1,16 +1,19 @@
 # ReviewPilot
 
-ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公开 GitHub PR 链接，或直接粘贴 unified diff。系统会解析代码变更、构建证据链，并调用千问生成基于证据的 Review 报告。
+ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公开 GitHub PR 链接，或直接粘贴 unified diff。系统会解析代码变更、构建证据链，并调用千问生成中文 Review 报告。
 
 ## 功能
 
-- 支持无需登录获取公开 GitHub PR 的 diff。
+- 支持注册和登录。
+- 注册时保存用户账号、密码和千问 API Key。
+- 登录后自动使用该账号保存的 API Key，不需要每次在命令行输入。
+- 支持在设置中修改千问 API Key 和默认模型。
+- 每次评审可以选择模型：`qwen-plus`、`qwen-plus-2025-07-28`、`qwen-long`、`qwen-max` 或自定义模型名。
+- 支持无需登录 GitHub 获取公开 PR 的 diff。
 - 支持直接粘贴 unified diff 进行分析。
 - 解析变更文件、hunk、新增行和删除行。
-- 从代码变更中抽取紧凑的证据链。
-- 通过阿里云百炼 OpenAI 兼容接口调用千问。
+- 从代码变更中抽取证据链。
 - 要求每条 Review 建议包含文件、证据、风险等级、置信度和修改建议。
-- API Key 只保存在本地后端环境变量中，不暴露给浏览器。
 
 ## 项目文档
 
@@ -22,12 +25,6 @@ ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公
 - [架构设计](docs/architecture.md)
 
 ## 本地运行
-
-先设置千问 API Key：
-
-```powershell
-$env:DASHSCOPE_API_KEY="你的_api_key"
-```
 
 启动本地服务：
 
@@ -44,27 +41,30 @@ http://127.0.0.1:8770
 可选环境变量：
 
 ```text
-QWEN_MODEL=qwen-plus
-QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 REVIEWPILOT_PORT=8770
 ```
 
 ## 使用方式
 
-任选一种输入方式：
+首次使用需要注册：
+
+1. 输入账号。
+2. 输入密码。
+3. 填写千问 API Key。
+4. 设置默认模型，例如 `qwen-plus`。
+
+之后直接登录即可，不需要再输入 API Key。如果 API Key 变化，可以在右上角“设置”中修改。
+
+评审时任选一种输入方式：
 
 - 输入公开 GitHub PR 链接，例如 `https://github.com/owner/repo/pull/1`。
 - 粘贴 unified diff。
 
-当前版本只支持公开仓库，不需要 GitHub Token。如果遇到 GitHub 访问频率限制或网络失败，可以手动粘贴 diff 作为兜底方案。
-
-## 为什么使用千问
-
-ReviewPilot 默认使用千问作为大语言模型。阿里云百炼提供 OpenAI 兼容的 Chat Completions 接口，默认地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，模型默认使用 `qwen-plus`。
+然后选择本次使用的大语言模型并点击“开始评审”。
 
 ## 设计思路
 
-项目采用“证据优先”的设计：
+项目采用“证据优先”的流程：
 
 ```text
 PR 链接或 diff
@@ -75,15 +75,21 @@ PR 链接或 diff
 -> Review 报告
 ```
 
-这样做的目的是减少大模型幻觉。模型只能基于提供的 diff 和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端也会过滤没有引用变更文件或具体证据的 Review 建议。
+模型只能基于提供的 diff 和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端会过滤没有引用变更文件或具体证据的 Review 建议。
 
-## 幻觉与模板化控制
+## 数据与安全说明
 
-- 每条建议必须绑定变更文件。
-- 每条建议必须包含具体证据。
-- 风险等级和置信度分开展示。
-- 低证据建议不会作为确定问题展示。
-- Prompt 要求模型只输出结构化 JSON，方便后端校验。
+- 用户数据保存在本地 `data/users.json`。
+- 密码不会明文保存，只保存加盐哈希。
+- 千问 API Key 使用本地服务密钥加密保存。
+- `data/users.json` 和 `data/app_secret.key` 已加入 `.gitignore`，不会提交到 GitHub。
+
+## 验证命令
+
+```powershell
+python -m unittest discover -s tests
+python -m py_compile server.py reviewpilot\diff_parser.py reviewpilot\github_client.py reviewpilot\qwen_client.py reviewpilot\review_service.py reviewpilot\user_store.py
+```
 
 ## 开发规范
 
