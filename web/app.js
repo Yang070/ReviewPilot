@@ -214,8 +214,7 @@ let isInputExpanded = true;
 let isDrawerOpen = false;
 let sidebarActiveKey = "result_visualization";
 let reportActiveTab = "result";
-let diffViewMode = "split";
-let codeFileFilter = "all";
+  let codeFileFilter = "all";
 let lastReviewInput = {
   sourceType: "url",
   prUrl: "",
@@ -407,12 +406,7 @@ document.addEventListener("click", (event) => {
     else expandedFileLevel.add(file);
     renderDiffReview(lastReport);
   }
-  const diffViewButton = event.target.closest("[data-diff-view]");
-  if (diffViewButton) {
-    diffViewMode = diffViewButton.dataset.diffView;
-    renderDiffReview(lastReport);
-  }
-  const openIssues = event.target.closest("[data-open-issues]");
+    const openIssues = event.target.closest("[data-open-issues]");
   if (openIssues) {
     isDrawerOpen = true;
     selectedAnnotation = null;
@@ -1354,7 +1348,7 @@ function featureIntroConfig(tab) {
       description: "分析完成后，这里会展示文件 diff、行内 AI 批注和 Review 建议。",
       features: [
         {icon: "files", title: "文件导航", description: "按优先级分组查看本次 PR 的关键文件。"},
-        {icon: "code", title: "Split Diff", description: "对比旧代码和新代码，阅读具体变更。"},
+        {icon: "code", title: "Unified Diff", description: "在统一视图中阅读新增、删除和上下文代码。"},
         {icon: "message", title: "行内批注", description: "在具体代码行旁查看 AI 风险提示。"},
         {icon: "file-text", title: "Review 建议", description: "复制可直接粘贴到 GitHub 的评论。"},
       ],
@@ -2209,8 +2203,7 @@ function renderDiffFileHeader(file) {
         <span title="${escapeHtmlAttr(file.filename)}">${escapeHtml(risk.label)} · +${file.additions} / -${file.deletions} · ${issueCount} 条 AI 问题 · ${escapeHtml(compactReason(file.change, reasons))}</span>
       </div>
       <div class="segmented-control diff-header-actions">
-        <button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button>
-        <button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button>
+        <span class="diff-mode-label">Unified Diff</span>
         <details class="toolbar-popover"><summary>Ask PR 快捷问题 ▾</summary><div class="toolbar-popover-menu">${buttons}</div></details>
         <details class="toolbar-popover"><summary>技术细节 ▾</summary><div class="toolbar-popover-menu tech-menu">
           <p><strong>风险判定：</strong>${escapeHtml(reasons)}</p>
@@ -2224,7 +2217,6 @@ function renderDiffFileHeader(file) {
 }
 
 function renderDiffLines(file, showRules, showAudit) {
-  if (diffViewMode === "split") return renderSplitDiffLines(file, showRules, showAudit);
   const fileLevel = renderFileLevelAnnotations(file, showAudit, showRules);
   return `${fileLevel}<div class="diff-table">${(file.parsed_lines || []).map(line => {
     const newLine = line.new_line_no || "";
@@ -2237,34 +2229,6 @@ function renderDiffLines(file, showRules, showAudit) {
       <span class="line-no new">${newLine}</span>
       <span class="line-mark">${line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}</span>
       <code>${escapeHtml(line.content)}</code>
-      <span class="annotation-cell">${renderAnnotationMarker(file.filename, line.new_line_no, annotations)}</span>
-    </div>`;
-    const comments = annotations
-      .filter(annotation => expandedAnnotations.has(annotationKey(file.filename, line.new_line_no, annotation.id)))
-      .map(annotation => renderInlineAnnotation(annotation, showAudit))
-      .join("");
-    return row + comments;
-  }).join("")}</div>`;
-}
-
-function renderSplitDiffLines(file, showRules, showAudit) {
-  const fileLevel = renderFileLevelAnnotations(file, showAudit, showRules);
-  return `${fileLevel}<div class="split-diff-table">${(file.parsed_lines || []).map(line => {
-    const newLine = line.new_line_no || "";
-    const oldLine = line.old_line_no || "";
-    const annotations = annotationsForLine(file, line.new_line_no, showRules);
-    const hasRisk = annotations.some(item => item.kind === "risk");
-    const hasRule = annotations.some(item => item.kind === "rule");
-    const rowType = line.type === "add" ? "split-add" : line.type === "delete" ? "split-delete" : "split-context";
-    const oldCode = line.type === "add" ? "" : line.content;
-    const newCode = line.type === "delete" ? "" : line.content;
-    const row = `<div class="split-diff-row ${rowType} ${hasRisk ? "has-risk" : ""} ${hasRule ? "has-rule" : ""}" data-new-line="${line.new_line_no || ""}">
-      <span class="line-no old">${oldLine}</span>
-      <span class="line-mark old">${line.type === "delete" ? "-" : " "}</span>
-      <code class="old-code">${escapeHtml(oldCode)}</code>
-      <span class="line-no new">${newLine}</span>
-      <span class="line-mark new">${line.type === "add" ? "+" : " "}</span>
-      <code class="new-code">${escapeHtml(newCode)}</code>
       <span class="annotation-cell">${renderAnnotationMarker(file.filename, line.new_line_no, annotations)}</span>
     </div>`;
     const comments = annotations
