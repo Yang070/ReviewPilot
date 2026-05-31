@@ -8,38 +8,55 @@
   </head>
   <body>
     <main class="layout">
-      <header class="topbar">
+      <header class="topbar global-sidebar">
         <button class="brand link-button" id="brandBtn" type="button">
           <span class="logo">RP</span>
           <span>
             <strong>ReviewPilot</strong>
-            <small>风险感知型 AI PR Review 助手</small>
+            <small>AI-native PR Review</small>
           </span>
         </button>
-        <div class="userbar">
-          <span class="status hidden" id="userLabel"></span>
-          <div class="menu hidden" id="userMenu">
-            <button id="menuBtn" type="button">账号菜单</button>
-            <div class="menu-list hidden" id="menuList">
-              <button data-route="/settings/models" type="button">模型设置</button>
-              <button data-route="/settings/rules" type="button">规则管理</button>
-              <button data-route="/history" type="button">历史记录</button>
-              <button id="logoutBtn" type="button">退出登录</button>
-            </div>
-          </div>
+        <nav class="side-nav" id="globalNav">
+          <button class="active" data-sidebar-key="code_review" data-report-target="code" data-icon="code" type="button">代码评审</button>
+          <button data-sidebar-key="overview" data-report-target="overview" data-icon="layout" type="button">概览</button>
+          <button data-sidebar-key="summary" data-report-target="overview" data-icon="file-text" type="button">摘要</button>
+          <button data-sidebar-key="audit" data-report-target="audit" data-icon="shield" type="button">审计</button>
+          <button data-sidebar-key="ask" data-report-target="ask" data-icon="message" type="button">AI 问答</button>
+          <button data-sidebar-key="changed_files" data-report-target="changed" data-icon="files" type="button">变更文件</button>
+          <button data-sidebar-key="history" data-route="/history" data-icon="history" type="button">历史记录</button>
+          <button data-sidebar-key="model_settings" data-route="/settings/models" data-icon="sliders" type="button">模型设置</button>
+          <button data-sidebar-key="system_settings" data-route="/settings/rules" data-icon="settings" type="button">系统设置</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span>当前模型</span>
+          <strong id="sideModelName">未配置</strong>
+          <small id="sideAnalysisMode">快速分析</small>
         </div>
       </header>
 
+      <div class="userbar">
+        <div class="menu hidden" id="userMenu">
+          <button id="menuBtn" class="account-menu-button" type="button" aria-haspopup="true" aria-expanded="false">
+            <span class="account-kicker">当前账号</span>
+            <span class="account-main">
+              <span id="accountAvatar" class="account-avatar">--</span>
+              <strong id="accountName">未登录</strong>
+            </span>
+          </button>
+          <div class="menu-list hidden" id="menuList">
+            <button id="openAccountSettingsBtn" type="button">设置</button>
+            <button id="openUsernameDialogBtn" type="button">修改用户名</button>
+            <button id="openPasswordDialogBtn" type="button">修改密码</button>
+            <button id="logoutBtn" type="button">退出登录</button>
+          </div>
+        </div>
+      </div>
+
       <section id="loginView" class="auth-shell hidden">
         <div class="auth-copy">
-          <span class="eyebrow">ReviewPilot Workbench</span>
-          <h2>登录后进入风险感知评审工作台</h2>
-          <p>配置模型、分析 PR、查看历史记录都在一个工作台里完成，不再把 API Key 混进注册流程。</p>
-          <div class="auth-points">
-            <span>文件风险评分</span>
-            <span>规则检测</span>
-            <span>历史报告</span>
-          </div>
+          <span class="eyebrow">ReviewPilot</span>
+          <h2>欢迎回来</h2>
+          <p>登录 ReviewPilot，继续查看你的 PR Review 记录。</p>
         </div>
         <form id="loginForm" class="panel auth-card">
           <h2>欢迎回来</h2>
@@ -58,14 +75,9 @@
 
       <section id="registerView" class="auth-shell hidden">
         <div class="auth-copy">
-          <span class="eyebrow">Create Account</span>
-          <h2>先创建账号，再在工作台配置模型</h2>
-          <p>注册只负责身份信息。API Key 会在模型设置中单独保存、掩码展示，后续可以随时切换。</p>
-          <div class="auth-points">
-            <span>多模型配置</span>
-            <span>默认模型</span>
-            <span>连接测试</span>
-          </div>
+          <span class="eyebrow">ReviewPilot</span>
+          <h2>创建账号</h2>
+          <p>开始使用 ReviewPilot 进行 PR 预审。</p>
         </div>
         <form id="registerForm" class="panel auth-card">
           <h2>创建账号</h2>
@@ -86,6 +98,7 @@
             <input id="registerConfirmPassword" type="password" autocomplete="new-password">
           </label>
           <button class="primary" type="submit">注册</button>
+          <p class="helper center-text">模型 API Key 可在登录后到设置中配置。</p>
           <button class="link-button" data-route="/login" type="button">已有账号，去登录</button>
         </form>
       </section>
@@ -94,7 +107,6 @@
         <section class="workbench panel">
           <div class="workbench-head">
             <div>
-              <span class="eyebrow">Review Workbench</span>
               <h2>PR Review 工作台</h2>
               <p>在这里配置 API、选择模型、提交 PR，并查看本次分析状态。</p>
             </div>
@@ -171,7 +183,6 @@
               <select id="analysisMode">
                 <option value="fast">快速分析</option>
                 <option value="deep-audit">深度审计</option>
-                <option value="compare" disabled>多模型对比（预留）</option>
               </select>
             </label>
           </div>
@@ -213,106 +224,227 @@
           </div>
 
           <div id="reportContent" class="hidden">
-            <div id="operationStatus" class="operation-status hidden">
-              <div>
-                <strong id="operationTitle">正在评审</strong>
-                <p id="operationText">正在准备分析上下文...</p>
-              </div>
-              <div class="progress-track"><span id="progressBar"></span></div>
-            </div>
-
-            <div class="report-head">
-              <div>
-                <h2 id="reportTitle">评审报告</h2>
-                <p id="summaryText"></p>
-              </div>
-              <span id="riskBadge" class="badge low">low</span>
-            </div>
-
-            <section class="result-section">
-              <div class="section-head">
-                <h3>顶部概览</h3>
-                <div class="inline-actions">
-                  <button id="copySummaryBtn" type="button">复制摘要</button>
-                  <button id="exportMarkdownBtn" type="button">导出 Markdown</button>
+            <div class="review-toolbar">
+              <div class="toolbar-brand">
+                <span class="mini-logo">RP</span>
+                <div>
+                  <strong id="toolbarRepoLabel">ReviewPilot</strong>
+                  <small id="toolbarPrLabel">等待选择 PR</small>
                 </div>
               </div>
-              <div class="metrics">
-                <div><span>文件数</span><strong id="fileCount">0</strong></div>
-                <div><span>新增行数</span><strong id="additionCount">0</strong></div>
-                <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
-                <div><span>风险数</span><strong id="findingCount">0</strong></div>
-                <div><span>深度文件</span><strong id="evidenceCount">0</strong></div>
-                <div><span>综合评分</span><strong id="overallScore">0</strong></div>
+              <div>
+                <span>状态</span>
+                <strong id="toolbarStatusLabel">未分析</strong>
               </div>
-            </section>
+              <div>
+                <span>分支</span>
+                <strong id="toolbarBranchLabel">main</strong>
+              </div>
+              <div>
+                <span>模型</span>
+                <strong id="toolbarModelLabel">未选择</strong>
+              </div>
+              <div>
+                <span>模式</span>
+                <strong id="toolbarModeLabel">快速分析</strong>
+              </div>
+              <div class="toolbar-actions">
+                <button id="reanalyzeBtn" type="button">重新分析</button>
+                <button id="copySummaryBtn" type="button">复制摘要</button>
+                <button id="exportMarkdownBtn" type="button">导出报告</button>
+                <button data-route="/settings/models" type="button">设置</button>
+              </div>
+            </div>
+
+            <div class="compact-summary">
+              <strong id="reportTitle">评审报告</strong>
+              <span id="summaryLine">0 个文件 · +0 / -0 · 0 条风险 · 0 个深度分析文件 · 综合评分 0</span>
+              <span id="riskBadge" class="badge low">低风险</span>
+              <p id="summaryText"></p>
+            </div>
+
+            <div class="metrics sr-metrics">
+              <div><span>文件数</span><strong id="fileCount">0</strong></div>
+              <div><span>新增行数</span><strong id="additionCount">0</strong></div>
+              <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
+              <div><span>风险数</span><strong id="findingCount">0</strong></div>
+              <div><span>深度文件</span><strong id="evidenceCount">0</strong></div>
+              <div><span>综合评分</span><strong id="overallScore">0</strong></div>
+            </div>
 
             <div class="report-tabs" id="reportTabs">
-              <button class="active" data-report-tab="overview" type="button">概览</button>
-              <button data-report-tab="files" type="button">文件</button>
-              <button data-report-tab="rules" type="button">规则预检</button>
-              <button data-report-tab="risks" type="button">风险</button>
-              <button data-report-tab="audit" type="button">深度审计</button>
-              <button data-report-tab="comments" type="button">建议</button>
-              <button data-report-tab="limits" type="button">限制</button>
+              <button class="active" data-report-tab="code" type="button">代码评审</button>
+              <button data-report-tab="overview" type="button">摘要</button>
+              <button data-report-tab="changed" type="button">变更文件</button>
+              <button data-report-tab="audit" type="button">审计</button>
+              <button data-report-tab="ask" type="button">问答</button>
             </div>
 
-            <div class="report-pane" data-report-panel="overview">
-              <div class="section-grid">
-                <section class="result-section"><h3>PR Overview</h3><div id="overviewBox" class="stack"></div></section>
-                <section class="result-section"><h3>Context Coverage</h3><div id="coverageBox" class="stack"></div></section>
+            <div class="report-pane" data-report-panel="code">
+              <section id="metricsDashboard" class="metrics-dashboard"></section>
+              <details class="top-priority-section" id="topPrioritySection" open>
+                <summary>
+                  <span>优先查看 TOP 3</span>
+                  <button class="ghost-button" data-sidebar-key="audit" data-report-target="audit" type="button">查看审计</button>
+                </summary>
+                <div id="topPriorityList" class="top-priority-list"></div>
+              </details>
+              <section class="diff-review-shell">
+                <aside class="diff-sidebar">
+                  <div class="diff-toolbar">
+                    <label class="field">
+                      <span>基于审计结果选择文件</span>
+                      <select id="reviewFileSelect"></select>
+                    </label>
+                    <div class="filter-chips" id="fileFilterChips">
+                      <button class="active" data-file-filter="all" type="button">全部</button>
+                      <button data-file-filter="risk" type="button">有风险</button>
+                      <button data-file-filter="high" type="button">高风险</button>
+                      <button data-file-filter="deep" type="button">已深度分析</button>
+                      <button data-file-filter="low" type="button">低优先级</button>
+                    </div>
+                    <label class="field hidden">
+                      <span>文件排序</span>
+                      <select id="fileSortMode">
+                        <option value="risk">按风险分</option>
+                        <option value="count">按风险数量</option>
+                        <option value="order">按文件顺序</option>
+                      </select>
+                    </label>
+                    <label class="check-row hidden"><input id="onlyRiskFiles" type="checkbox"> 只看有风险</label>
+                    <label class="check-row hidden"><input id="onlyHighRisk" type="checkbox"> 只看中高风险</label>
+                    <label class="check-row hidden"><input id="showRuleMarkers" type="checkbox" checked> 显示规则预检</label>
+                    <label class="check-row hidden"><input id="showAuditNotes" type="checkbox" checked> 显示审计说明</label>
+                  </div>
+                  <div id="changedFilesNav" class="changed-files-nav"></div>
+                  <div id="linkedRiskList" class="hidden"></div>
+                </aside>
+                <section class="diff-main">
+                  <div id="diffFileHeader" class="diff-file-header"></div>
+                  <div id="diffViewer" class="diff-viewer"></div>
+                </section>
+                <aside id="riskDetailDrawer" class="risk-detail-drawer">
+                  <div class="drawer-empty">
+                    <strong>批注详情</strong>
+                    <p>点击代码行右侧的批注标记，查看风险说明、审计结论和可复制 Review Comment。</p>
+                  </div>
+                </aside>
+              </section>
+              <details class="issues-section" id="issuesSection">
+                <summary>
+                  <span>AI 发现 <strong id="inlineIssueCount">0</strong> 个问题，查看全部</span>
+                </summary>
+                <div class="section-title-row">
+                  <h3>AI 发现的问题</h3>
+                  <div class="segmented-control"><button class="active" type="button">AI 发现的问题</button><button type="button">已解决</button><button type="button">全部问题</button></div>
+                </div>
+                <div id="inlineIssueList" class="issue-list"></div>
+              </details>
+            </div>
+
+            <div class="report-pane hidden" data-report-panel="overview">
+              <div class="summary-layout">
+                <section class="result-section"><h3>PR 概览</h3><div id="overviewBox" class="stack"></div></section>
+                <section class="result-section overview-radar-section"><h3>质量雷达</h3><div id="overviewRadarBox"></div></section>
+                <section class="result-section"><h3>主要变更</h3><div id="modules" class="stack"></div></section>
+                <section class="result-section"><h3>文件统计</h3><div id="files" class="stack"></div></section>
+                <details class="result-section subtle-section"><summary>更多摘要信息</summary>
+                  <div id="coverageBox" class="stack"></div>
+                  <div id="priorityFiles" class="stack"></div>
+                  <div id="comments" class="stack"></div>
+                  <div id="limitations" class="stack"></div>
+                </details>
               </div>
             </div>
-            <div class="report-pane hidden" data-report-panel="files">
-              <div class="section-grid">
-                <section class="result-section"><h3>本次 PR 文件变更概览</h3><div id="files" class="stack"></div></section>
-                <section class="result-section"><h3>Risk-Aware File Ranking</h3><div id="priorityFiles" class="stack"></div></section>
-              </div>
-            </div>
-            <div class="report-pane hidden" data-report-panel="rules">
-              <p class="precheck-help">规则预检是在调用 AI 前，系统根据已启用的 Review 规则扫描出的候选关注点，不代表最终结论，AI 会结合 diff 证据进一步判断。</p>
-              <div class="section-grid">
-                <section class="result-section"><h3>规则预检</h3><div id="ruleFindings" class="stack"></div></section>
-                <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
-              </div>
-            </div>
-            <div class="report-pane hidden" data-report-panel="risks">
-              <section class="result-section"><h3>AI Risks</h3><div id="risks" class="stack"></div></section>
+            <div class="report-pane hidden" data-report-panel="changed">
+              <section class="changed-files-page">
+                <div class="section-head">
+                  <div>
+                    <h3>变更文件</h3>
+                    <p>查看本次 PR 改了哪些文件，以及系统如何判断文件优先级。</p>
+                  </div>
+                </div>
+                <div class="changed-file-filters">
+                  <input id="changedFileSearchInput" placeholder="筛选文件名或路径">
+                  <select id="changedStatusFilter">
+                    <option value="">全部状态</option>
+                    <option value="added">新增</option>
+                    <option value="modified">修改</option>
+                    <option value="removed">删除</option>
+                    <option value="renamed">重命名</option>
+                  </select>
+                  <select id="changedRiskFilter">
+                    <option value="">全部风险</option>
+                    <option value="high">高风险</option>
+                    <option value="medium">中风险</option>
+                    <option value="low">低风险</option>
+                  </select>
+                  <select id="changedDeepFilter">
+                    <option value="">全部分析状态</option>
+                    <option value="deep">已深度分析</option>
+                    <option value="base">基础检查</option>
+                  </select>
+                  <select id="changedTypeFilter">
+                    <option value="">全部类型</option>
+                    <option value="frontend">前端界面文件</option>
+                    <option value="config">配置文件</option>
+                    <option value="test">测试文件</option>
+                    <option value="lockfile">依赖锁定文件</option>
+                    <option value="general">普通配置/通用文件</option>
+                  </select>
+                </div>
+                <div id="changedFilesBox" class="changed-files-box"></div>
+              </section>
             </div>
             <div class="report-pane hidden" data-report-panel="audit">
-              <div class="section-grid">
+              <p class="precheck-help">规则预检是在调用 AI 前，系统根据已启用的 Review 规则扫描出的候选关注点，不代表最终结论，AI 会结合 diff 证据进一步判断。</p>
+              <div class="summary-layout">
+                <section class="result-section"><h3>规则预检</h3><div id="ruleFindings" class="stack"></div></section>
                 <section class="result-section"><h3>初审结果</h3><div id="reviewerResultBox" class="stack"></div></section>
                 <section class="result-section"><h3>AI 审计结果</h3><div id="auditorResultBox" class="stack"></div></section>
+                <section class="result-section"><h3>最终融合结果</h3><div id="finalResultBox" class="stack"></div></section>
+                <section class="result-section"><h3>风险列表</h3><div id="risks" class="stack"></div></section>
               </div>
-              <section class="result-section"><h3>最终融合结果</h3><div id="finalResultBox" class="stack"></div></section>
             </div>
-            <div class="report-pane hidden" data-report-panel="comments">
-              <section class="result-section"><h3>Review Comments</h3><div id="comments" class="stack"></div></section>
-            </div>
-            <div class="report-pane hidden" data-report-panel="limits">
-              <section class="result-section"><h3>AI 分析限制</h3><div id="limitations" class="stack"></div></section>
-            </div>
-            <section id="reviewAskPanel" class="result-section ask-panel hidden">
-              <div class="section-head">
-                <div>
-                  <h3>Ask PR 交互追问</h3>
-                  <p>围绕当前 Review 报告继续提问，不会重新抓取 PR，也不会修改原始报告。</p>
+            <div class="report-pane hidden" data-report-panel="ask">
+              <section id="reviewAskPanel" class="result-section ask-panel hidden">
+                <div class="section-head">
+                  <div>
+                    <h3>Ask PR 交互追问</h3>
+                    <p>围绕当前 Review 报告继续提问，不会重新抓取 PR，也不会修改原始报告。</p>
+                  </div>
+                  <label class="field inline-field">
+                    <span>回答模型</span>
+                    <select id="reviewAskModelSelect"></select>
+                  </label>
                 </div>
-                <label class="field inline-field">
-                  <span>回答模型</span>
-                  <select id="reviewAskModelSelect"></select>
-                </label>
-              </div>
-              <div id="reviewAskSuggestions" class="suggestion-row"></div>
-              <div class="ask-input-row">
-                <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="例如：这个 PR 最需要人工复核哪里？"></textarea>
-                <button id="reviewAskSendBtn" class="primary" type="button">发送追问</button>
-              </div>
-              <div id="reviewAskThreads" class="ask-thread-list"></div>
-            </section>
+                <div class="ask-chat-area">
+                  <div class="ask-main-column">
+                    <div id="reviewAskSuggestions" class="suggestion-row"></div>
+                    <div id="reviewAskThreads" class="ask-thread-list"></div>
+                    <div class="ask-input-row">
+                      <button class="weak-button" type="button">引用上下文</button>
+                      <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="继续提问关于本次 PR 的问题，例如：这个风险为什么成立？"></textarea>
+                      <button id="reviewAskSendBtn" class="primary" type="button">发送</button>
+                    </div>
+                  </div>
+                  <aside id="reviewAskContext" class="ask-context-panel"></aside>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
       </section>
+
+      <div id="progressModal" class="progress-modal hidden" role="dialog" aria-modal="true" aria-labelledby="progressModalTitle">
+        <div class="progress-dialog">
+          <h2 id="progressModalTitle">正在分析 PR</h2>
+          <p id="progressModalText">系统正在获取代码变更、执行规则预检，并生成 AI Review 报告。</p>
+          <div class="progress-percent"><strong id="progressPercent">0%</strong></div>
+          <div class="progress-track large"><span id="progressBar"></span></div>
+          <ol id="progressStages" class="progress-stages"></ol>
+        </div>
+      </div>
 
       <section id="modelsView" class="page-panel hidden">
         <div class="section-head">
@@ -383,12 +515,29 @@
       </section>
 
       <section id="historyView" class="page-panel hidden">
+        <div class="history-container">
         <div class="section-head">
           <div>
-            <h2>History</h2>
-            <p>这里只展示做过的 Review 记录。点击记录可以在当前页面查看报告，不会跳回主工作台。</p>
+            <h2>历史记录</h2>
+            <p>查看之前生成的 PR Review 报告。</p>
           </div>
           <button data-route="/review" type="button">返回 Review</button>
+        </div>
+        <div class="history-filters">
+          <input id="historySearchInput" placeholder="搜索 PR 或仓库">
+          <select id="historyRiskFilter"><option value="">全部风险</option><option value="high">高风险</option><option value="medium">中风险</option><option value="low">低风险</option></select>
+          <input id="historyModelFilter" placeholder="模型筛选">
+          <div class="date-range-filter" aria-label="分析时间范围">
+            <label>
+              <span>开始</span>
+              <input id="historyStartDateFilter" type="date">
+            </label>
+            <span class="date-range-separator">至</span>
+            <label>
+              <span>结束</span>
+              <input id="historyEndDateFilter" type="date">
+            </label>
+          </div>
         </div>
         <div class="history-layout">
           <div id="historyList" class="stack"></div>
@@ -425,6 +574,7 @@
             <pre id="historyMarkdownPreview" class="markdown-preview"></pre>
           </section>
         </div>
+        </div>
       </section>
     </main>
 
@@ -434,7 +584,43 @@
           <h2 id="messageTitle">提示</h2>
           <button id="messageCloseBtn" type="button">关闭</button>
         </div>
-        <p id="messageText"></p>
+        <div id="messageText" class="message-content"></div>
+      </div>
+    </dialog>
+
+    <dialog id="accountDialog" class="message-dialog account-dialog">
+      <div class="message-box account-box">
+        <div class="dialog-head">
+          <div>
+            <h2>账号设置</h2>
+            <p id="accountDialogMeta">管理当前登录账号。</p>
+          </div>
+          <button id="accountDialogCloseBtn" type="button">关闭</button>
+        </div>
+        <form id="usernameForm" class="account-form">
+          <h3>修改用户名</h3>
+          <label class="field">
+            <span>新用户名</span>
+            <input id="newUsernameInput" autocomplete="username" placeholder="3-24 位字母、数字或下划线">
+          </label>
+          <button class="primary" type="submit">保存用户名</button>
+        </form>
+        <form id="passwordForm" class="account-form">
+          <h3>修改密码</h3>
+          <label class="field">
+            <span>当前密码</span>
+            <input id="currentPasswordInput" type="password" autocomplete="current-password">
+          </label>
+          <label class="field">
+            <span>新密码</span>
+            <input id="newPasswordInput" type="password" autocomplete="new-password">
+          </label>
+          <label class="field">
+            <span>确认新密码</span>
+            <input id="confirmNewPasswordInput" type="password" autocomplete="new-password">
+          </label>
+          <button class="primary" type="submit">保存密码</button>
+        </form>
       </div>
     </dialog>
 
