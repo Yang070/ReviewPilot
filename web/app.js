@@ -91,6 +91,7 @@ const priorityFilesBox = document.querySelector("#priorityFiles");
 const ruleFindingsBox = document.querySelector("#ruleFindings");
 const modulesBox = document.querySelector("#modules");
 const risksBox = document.querySelector("#risks");
+const riskOverviewBox = document.querySelector("#riskOverviewBox");
 const commentsBox = document.querySelector("#comments");
 const limitationsBox = document.querySelector("#limitations");
 const copySummaryBtn = document.querySelector("#copySummaryBtn");
@@ -126,6 +127,9 @@ const sideModelName = document.querySelector("#sideModelName");
 const sideAnalysisMode = document.querySelector("#sideAnalysisMode");
 
 const modelForm = document.querySelector("#modelForm");
+const modelConfigDialog = document.querySelector("#modelConfigDialog");
+const addModelConfigBtn = document.querySelector("#addModelConfigBtn");
+const closeModelDialogBtn = document.querySelector("#closeModelDialogBtn");
 const modelFormTitle = document.querySelector("#modelFormTitle");
 const editingConfigId = document.querySelector("#editingConfigId");
 const modelProvider = document.querySelector("#modelProvider");
@@ -193,6 +197,7 @@ let selectedHistoryId = "";
 let historyItemsState = [];
 let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
+let askSendingState = {review: false, history: false};
 let progressTimer = null;
 let progressState = null;
 let progressStepIndex = 0;
@@ -200,14 +205,24 @@ let activeInputTab = "url";
 let activeDiffFile = "";
 let expandedAnnotations = new Set();
 let expandedFileLevel = new Set();
+let expandedIssueCards = new Set();
+let ignoredIssueIds = new Set();
+let resolvedIssueIds = new Set();
 let selectedAnnotation = null;
 let hasReport = false;
 let isInputExpanded = true;
 let isDrawerOpen = false;
-let sidebarActiveKey = "code_review";
-let reportActiveTab = "code";
-let diffViewMode = "split";
-let codeFileFilter = "all";
+let sidebarActiveKey = "result_visualization";
+let reportActiveTab = "result";
+  let codeFileFilter = "all";
+let lastReviewInput = {
+  sourceType: "url",
+  prUrl: "",
+  pastedDiff: "",
+  uploadedPatchName: "",
+  model: "",
+  analysisMode: "fast",
+};
 
 const reviewProgressStages = [
   {key: "fetch_pr", label: "获取 PR 信息"},
@@ -218,6 +233,13 @@ const reviewProgressStages = [
   {key: "auditor", label: "Auditor 模型复核"},
   {key: "finalize", label: "生成最终报告"},
 ];
+
+function progressStagesForMode(mode = analysisMode?.value) {
+  if (mode === "deep-audit" || mode === "deep_audit") return reviewProgressStages;
+  return reviewProgressStages
+    .filter(stage => stage.key !== "auditor")
+    .map(stage => stage.key === "reviewer" ? {...stage, label: "AI 模型评审"} : stage);
+}
 
 const providerDefaults = {
   OpenAI: "https://api.openai.com/v1",
@@ -263,6 +285,8 @@ const fileAskSuggestions = [
   "这些提示哪些可以忽略？",
 ];
 
+document.querySelector('[data-sidebar-key="summary"]')?.remove();
+
 document.addEventListener("click", (event) => {
   const routeButton = event.target.closest("[data-route]");
   if (routeButton) {
@@ -282,13 +306,33 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) await copyText(copyButton.dataset.copy, "Review Comment 已复制。");
+  const retryAsk = event.target.closest("[data-ask-retry]");
+  if (retryAsk) {
+    await retryAskThread(retryAsk.dataset.askScope || "review", retryAsk.dataset.askRetry || "");
+    return;
+  }
 });
 
 document.addEventListener("click", (event) => {
+  const fileAsk = event.target.closest("[data-file-ask-question]");
+  if (fileAsk) {
+    const question = fileAsk.dataset.fileAskQuestion || "";
+    const context = buildCurrentFileAskContext();
+    goToAskPRWithQuestion(question, context);
+    return;
+  }
   const askSuggestion = event.target.closest("[data-ask-suggestion]");
-  if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
+  if (askSuggestion) {
+    sendAsk(askSuggestion.dataset.askScope || "review", askSuggestion.dataset.askSuggestion || "");
+    return;
+  }
   const riskAsk = event.target.closest("[data-risk-ask]");
-  if (riskAsk) fillAskQuestion("review", "\u8bf7\u8fdb\u4e00\u6b65\u89e3\u91ca\u8fd9\u4e2a\u98ce\u9669\u4e3a\u4ec0\u4e48\u6210\u7acb\uff0c\u4ee5\u53ca\u5e94\u8be5\u5982\u4f55\u4fee\u6539\uff1f");
+  if (riskAsk) {
+    const annotation = findAskAnnotation(riskAsk.dataset.riskAsk);
+    const context = buildAnnotationAskContext(annotation);
+    goToAskPRWithQuestion(buildAnnotationAskQuestion(annotation), context);
+    return;
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -309,7 +353,42 @@ document.addEventListener("click", (event) => {
   const closeDrawer = event.target.closest("[data-close-drawer]");
   if (closeDrawer) {
     isDrawerOpen = false;
+    selectedAnnotation = null;
     updateWorkbenchShellState();
+  }
+  const toggleIssuesPanel = event.target.closest("[data-toggle-issues-panel]");
+  if (toggleIssuesPanel) {
+    isDrawerOpen = !isDrawerOpen;
+    if (!isDrawerOpen) selectedAnnotation = null;
+    updateWorkbenchShellState();
+    renderDiffReview(lastReport);
+  }
+  const issueDetailToggle = event.target.closest("[data-issue-detail]");
+  if (issueDetailToggle) {
+    const id = issueDetailToggle.dataset.issueDetail;
+    if (expandedIssueCards.has(id)) expandedIssueCards.delete(id);
+    else expandedIssueCards.add(id);
+    renderDiffReview(lastReport);
+  }
+  const issueStateToggle = event.target.closest("[data-issue-state]");
+  if (issueStateToggle) {
+    const id = issueStateToggle.dataset.issueState || "";
+    const state = issueStateToggle.dataset.issueStateValue || "";
+    if (state === "ignored") {
+      if (ignoredIssueIds.has(id)) ignoredIssueIds.delete(id);
+      else {
+        ignoredIssueIds.add(id);
+        resolvedIssueIds.delete(id);
+      }
+    }
+    if (state === "resolved") {
+      if (resolvedIssueIds.has(id)) resolvedIssueIds.delete(id);
+      else {
+        resolvedIssueIds.add(id);
+        ignoredIssueIds.delete(id);
+      }
+    }
+    renderDiffReview(lastReport);
   }
   const priorityFile = event.target.closest("[data-priority-file]");
   if (priorityFile) {
@@ -318,7 +397,7 @@ document.addEventListener("click", (event) => {
     setReportTab("code");
     renderDiffReview(lastReport);
   }
-  const riskJump = event.target.closest(".issue-row[data-risk-jump]");
+  const riskJump = event.target.closest("[data-risk-jump]");
   if (riskJump) jumpToRiskElement(riskJump);
   const fileToggle = event.target.closest("[data-file-level-toggle]");
   if (fileToggle) {
@@ -327,9 +406,11 @@ document.addEventListener("click", (event) => {
     else expandedFileLevel.add(file);
     renderDiffReview(lastReport);
   }
-  const diffViewButton = event.target.closest("[data-diff-view]");
-  if (diffViewButton) {
-    diffViewMode = diffViewButton.dataset.diffView;
+    const openIssues = event.target.closest("[data-open-issues]");
+  if (openIssues) {
+    isDrawerOpen = true;
+    selectedAnnotation = null;
+    updateWorkbenchShellState();
     renderDiffReview(lastReport);
   }
   const missingReanalyze = event.target.closest("#missingDiffReanalyzeBtn");
@@ -456,6 +537,10 @@ reviewBtn.addEventListener("click", async () => {
     navigate("/settings/models");
     return;
   }
+  if (hasReport && !window.confirm("重新评审会覆盖当前页面展示结果，但历史记录仍会保留。是否继续？")) {
+    return;
+  }
+  lastReviewInput = readLastReviewInput();
   startProgress("正在评审", "正在解析输入和构建风险感知上下文...");
   reviewBtn.disabled = true;
   try {
@@ -468,6 +553,11 @@ reviewBtn.addEventListener("click", async () => {
     finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
   } catch (err) {
     stopProgress();
+    if (!lastReport) {
+      hasReport = false;
+      renderFeatureIntro(reportActiveTab);
+      updateWorkbenchShellState();
+    }
     showError(err);
   } finally {
     reviewBtn.disabled = false;
@@ -492,6 +582,7 @@ modelForm.addEventListener("submit", async (event) => {
     }
     resetModelForm();
     await loadModelConfigs();
+    closeModelConfigDialog();
     showNotice("保存成功", "模型配置已更新。");
   } catch (err) {
     showError(err);
@@ -510,12 +601,17 @@ testModelBtn.addEventListener("click", async () => {
 });
 
 resetModelFormBtn.addEventListener("click", resetModelForm);
+addModelConfigBtn?.addEventListener("click", () => {
+  resetModelForm();
+  openModelConfigDialog();
+});
+closeModelDialogBtn?.addEventListener("click", closeModelConfigDialog);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
 reanalyzeBtn.addEventListener("click", () => {
-  isInputExpanded = true;
+  isInputExpanded = hasReport ? !isInputExpanded : true;
   updateWorkbenchShellState();
-  reviewBtn.scrollIntoView({behavior: "smooth", block: "center"});
+  if (isInputExpanded) reviewBtn.scrollIntoView({behavior: "smooth", block: "center"});
 });
 
 quickProvider.addEventListener("change", () => {
@@ -564,6 +660,13 @@ historyStartDateFilter.addEventListener("change", renderFilteredHistory);
 historyEndDateFilter.addEventListener("change", renderFilteredHistory);
 reviewAskSendBtn.addEventListener("click", () => sendAsk("review"));
 historyAskSendBtn.addEventListener("click", () => sendAsk("history"));
+[reviewAskQuestion, historyAskQuestion].forEach((input, index) => {
+  input?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    sendAsk(index === 0 ? "review" : "history");
+  });
+});
 
 reportTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-report-tab]");
@@ -593,7 +696,7 @@ changedFilesNav.addEventListener("click", (event) => {
   const item = event.target.closest("[data-diff-file]");
   if (!item) return;
   activeDiffFile = item.dataset.diffFile;
-  setSidebarActive("changed_files");
+  setSidebarActive("code_review");
   renderDiffReview(lastReport);
 });
 linkedRiskList.addEventListener("click", (event) => {
@@ -776,10 +879,12 @@ async function route() {
   if (path === "/review") {
     await loadModelConfigs();
     await loadRules();
+    if (!hasReport) renderFeatureIntro(reportActiveTab);
   }
 }
 
 function showView(path) {
+  document.body.classList.toggle("auth-page", path === "/login" || path === "/register");
   Object.entries(views).forEach(([key, view]) => view.classList.toggle("hidden", key !== path));
 }
 
@@ -791,6 +896,17 @@ function setInputTab(tab) {
   document.querySelector("#urlInputPane").classList.toggle("hidden", tab !== "url");
   document.querySelector("#diffInputPane").classList.toggle("hidden", tab !== "diff");
   document.querySelector("#fileInputPane").classList.toggle("hidden", tab !== "file");
+}
+
+function readLastReviewInput() {
+  return {
+    sourceType: activeInputTab,
+    prUrl: prUrl.value.trim(),
+    pastedDiff: diffInput.value,
+    uploadedPatchName: patchFile.files?.[0]?.name || lastReviewInput.uploadedPatchName || "",
+    model: modelConfigSelect.value,
+    analysisMode: analysisMode.value,
+  };
 }
 
 async function buildReviewPayload() {
@@ -842,7 +958,7 @@ function renderWorkbenchStatus() {
     || modelConfigs[0];
   if (!selected) {
     currentModelName.textContent = "未配置";
-    currentModelMeta.textContent = "请在下方输入 API Key 和模型名称，或进入完整模型设置。";
+    currentModelMeta.textContent = "请先在左侧模型设置中添加 API Key 和模型名称。";
     currentApiMask.textContent = "未保存";
     currentProviderName.textContent = "未配置";
     currentBaseUrl.textContent = "添加配置后会显示 Provider 和接口地址。";
@@ -871,10 +987,14 @@ function renderAuditModeControls() {
 function renderModelConfigList() {
   if (!modelConfigList) return;
   if (!modelConfigs.length) {
-    modelConfigList.innerHTML = empty("暂无模型配置。添加后才能开始 Review。");
+    modelConfigList.innerHTML = `<div class="empty model-empty">
+      <strong>暂无模型配置</strong>
+      <p>添加 Reviewer / Auditor 可用模型后，才能开始 PR Review。</p>
+      <button class="primary" type="button" data-add-model-empty>新增模型配置</button>
+    </div>`;
     return;
   }
-  modelConfigList.innerHTML = modelConfigs.map(item => `<article class="card">
+  modelConfigList.innerHTML = modelConfigs.map(item => `<article class="card model-config-card">
     <div class="card-title">
       <span>${escapeHtml(item.display_name)}</span>
       <span class="badge ${item.is_default ? "low" : "medium"}">${item.is_default ? "默认" : "可用"}</span>
@@ -891,6 +1011,11 @@ function renderModelConfigList() {
 }
 
 modelConfigList.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-add-model-empty]")) {
+    resetModelForm();
+    openModelConfigDialog();
+    return;
+  }
   const editId = event.target.closest("[data-edit-model]")?.dataset.editModel;
   const defaultId = event.target.closest("[data-default-model]")?.dataset.defaultModel;
   const deleteId = event.target.closest("[data-delete-model]")?.dataset.deleteModel;
@@ -919,6 +1044,7 @@ function editModelConfig(id) {
   modelApiKey.value = "";
   modelName.value = item.model_name;
   modelDefault.checked = item.is_default;
+  openModelConfigDialog();
 }
 
 function resetModelForm() {
@@ -929,6 +1055,24 @@ function resetModelForm() {
   modelApiKey.value = "";
   modelName.value = "qwen-plus";
   modelDefault.checked = modelConfigs.length === 0;
+}
+
+function openModelConfigDialog() {
+  if (!modelConfigDialog) return;
+  if (typeof modelConfigDialog.showModal === "function") {
+    modelConfigDialog.showModal();
+  } else {
+    modelConfigDialog.classList.remove("hidden");
+  }
+}
+
+function closeModelConfigDialog() {
+  if (!modelConfigDialog) return;
+  if (typeof modelConfigDialog.close === "function" && modelConfigDialog.open) {
+    modelConfigDialog.close();
+  } else {
+    modelConfigDialog.classList.add("hidden");
+  }
 }
 
 function readModelForm() {
@@ -1176,6 +1320,98 @@ function updateWorkbenchShellState() {
   reviewView.classList.toggle("has-report", hasReport);
   reviewView.classList.toggle("input-expanded", isInputExpanded || !hasReport);
   reviewView.classList.toggle("drawer-open", isDrawerOpen);
+  if (reanalyzeBtn) reanalyzeBtn.textContent = hasReport && isInputExpanded ? "收起输入区" : "更换 PR / 新建评审";
+}
+
+function renderFeatureIntro(tab = reportActiveTab) {
+  if (!emptyReport || hasReport) return;
+  const config = featureIntroConfig(tab);
+  emptyReport.classList.remove("hidden");
+  reportContent.classList.add("hidden");
+  emptyReport.innerHTML = renderFeatureIntroPanel(config);
+}
+
+function featureIntroConfig(tab) {
+  const configs = {
+    result: {
+      title: "评估结果",
+      description: "分析完成后，这里会展示 PR 的核心指标、质量雷达图、主要变更和风险概览。",
+      features: [
+        {icon: "layout", title: "核心指标", description: "快速了解文件数、新增/删除行、风险数和综合评分。"},
+        {icon: "chip", title: "质量雷达图", description: "从质量、风险、安全、维护性和测试覆盖多个维度看整体状态。"},
+        {icon: "file-text", title: "主要更改", description: "总结本次 PR 的业务和结构变化。"},
+        {icon: "alert", title: "风险概览", description: "按风险等级和人工确认状态聚合展示。"},
+      ],
+    },
+    code: {
+      title: "代码评审",
+      description: "分析完成后，这里会展示文件 diff、行内 AI 批注和 Review 建议。",
+      features: [
+        {icon: "files", title: "文件导航", description: "按优先级分组查看本次 PR 的关键文件。"},
+        {icon: "code", title: "Unified Diff", description: "在统一视图中阅读新增、删除和上下文代码。"},
+        {icon: "message", title: "行内批注", description: "在具体代码行旁查看 AI 风险提示。"},
+        {icon: "file-text", title: "Review 建议", description: "复制可直接粘贴到 GitHub 的评论。"},
+      ],
+    },
+    overview: {
+      title: "概览",
+      description: "分析完成后，这里会展示 PR 摘要、上下文覆盖、文件统计、详细摘要和限制说明。",
+      features: [
+        {icon: "file-text", title: "PR 摘要", description: "查看本次 PR 的标题、模型、规模和总体说明。"},
+        {icon: "shield", title: "上下文覆盖", description: "了解哪些文件进入了深度上下文。"},
+        {icon: "files", title: "文件统计", description: "用表格比较文件状态、风险分和变更规模。"},
+        {icon: "message", title: "Review Comments", description: "汇总可复制的 Review 建议和限制说明。"},
+      ],
+    },
+    changed: {
+      title: "变更文件",
+      description: "分析完成后，这里会列出本次 PR 修改的全部文件，并展示文件状态、风险分和变更规模。",
+      features: [
+        {icon: "files", title: "文件列表", description: "查看本次 PR 改了哪些文件。"},
+        {icon: "layout", title: "文件状态", description: "区分新增、修改、删除、重命名。"},
+        {icon: "alert", title: "风险评分", description: "根据路径、类型和变更规模排序。"},
+        {icon: "code", title: "Patch 摘要", description: "展开查看文件级别的变更概况。"},
+      ],
+    },
+    audit: {
+      title: "审计",
+      description: "分析完成后，这里会展示规则预检、Reviewer 初审、Auditor 复核、误报降级和需要人工确认的问题。",
+      features: [
+        {icon: "shield", title: "规则预检", description: "AI 分析前先用固定规则扫描明显风险。"},
+        {icon: "code", title: "初审结果", description: "Reviewer 模型生成初步风险判断。"},
+        {icon: "chip", title: "审计复核", description: "Auditor 模型复核误报、漏报和置信度。"},
+        {icon: "alert", title: "人工确认", description: "标记需要开发者进一步判断的问题。"},
+      ],
+    },
+    ask: {
+      title: "AI 问答",
+      description: "分析完成后，你可以围绕当前 PR 继续追问风险原因、测试覆盖和 Review 建议。",
+      features: [
+        {icon: "message", title: "追问风险", description: "解释某条风险为什么成立。"},
+        {icon: "files", title: "追问文件", description: "询问某个文件为什么被判为高风险。"},
+        {icon: "shield", title: "追问测试", description: "检查是否缺少测试覆盖。"},
+        {icon: "file-text", title: "生成总结", description: "生成可复制的 Review 总结。"},
+      ],
+    },
+  };
+  return configs[tab] || configs.result;
+}
+
+function renderFeatureIntroPanel(config) {
+  return `<section class="feature-intro-panel">
+    <div class="feature-intro-copy">
+      <span class="eyebrow">ReviewPilot</span>
+      <h2>${escapeHtml(config.title)}</h2>
+      <p>${escapeHtml(config.description)}</p>
+    </div>
+    <div class="feature-intro-grid">
+      ${config.features.map(item => `<article class="feature-intro-card">
+        <span class="feature-intro-icon">${renderIcon(item.icon)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.description)}</p>
+      </article>`).join("")}
+    </div>
+  </section>`;
 }
 
 function deriveReportRiskLevel(risks) {
@@ -1257,12 +1493,34 @@ function renderTopPriorityList(data, fileChanges, risks) {
     const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
     const path = splitFilePath(item.filename || file.filename || "unknown");
     const reason = item.reason || (item.risk_reasons || [])[0] || "这处改动值得先看一遍";
-    return `<button class="priority-card ${level}" type="button" data-priority-file="${escapeHtmlAttr(item.filename || file.filename || "")}">
+    const filename = item.filename || file.filename || "";
+    return `<button class="priority-card ${level}" type="button" data-priority-file="${escapeHtmlAttr(filename)}" title="${escapeHtmlAttr(filename)}">
       <span class="rank">${index + 1}</span>
-      <div><strong>${escapeHtml(path.name)}</strong><small>${escapeHtml(path.dir || ".")}</small><p>${escapeHtml(reason)}</p></div>
+      <div class="priority-card-main">
+        <strong title="${escapeHtmlAttr(path.name)}">${escapeHtml(path.name)}</strong>
+        <small title="${escapeHtmlAttr(path.dir || ".")}">${escapeHtml(path.dir || ".")}</small>
+        <p title="${escapeHtmlAttr(reason)}">${escapeHtml(reason)}</p>
+      </div>
       <span class="badge ${level}">${riskLevelText(level)}</span>
     </button>`;
   }).join("");
+}
+
+function renderRiskOverview(risks, data = {}) {
+  const counts = {
+    high: risks.filter(item => item.risk_level === "high").length,
+    medium: risks.filter(item => item.risk_level === "medium").length,
+    low: risks.filter(item => item.risk_level === "low").length,
+    human: risks.filter(item => item.type === "needs_human_check" || item.audit_status === "needs_human_check" || item.audit_status === "downgraded").length,
+    dismissed: (data.final_result?.dismissed_risks || []).length + risks.filter(item => item.audit_status === "removed").length,
+  };
+  return `<div class="risk-overview-grid">
+    <article><span>高风险</span><strong class="risk-red">${counts.high}</strong></article>
+    <article><span>中风险</span><strong class="risk-amber">${counts.medium}</strong></article>
+    <article><span>低风险</span><strong class="risk-green">${counts.low}</strong></article>
+    <article><span>需要人工确认</span><strong>${counts.human}</strong></article>
+    <article><span>已忽略 / 已降级</span><strong>${counts.dismissed}</strong></article>
+  </div>`;
 }
 
 function renderIssueRow(item) {
@@ -1282,8 +1540,8 @@ function renderReport(data) {
   isDrawerOpen = false;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
-  setSidebarActive("code_review");
-  setReportTab("code");
+  setSidebarActive("result_visualization");
+  setReportTab("result");
   const fileChanges = data.file_changes || data.files || [];
   const risks = getReportRisks(data);
   const modules = data.final_result?.changed_modules || data.changed_modules || [];
@@ -1326,6 +1584,7 @@ function renderReport(data) {
   inlineIssueList.innerHTML = risks.length ? risks.map(renderIssueRow).join("") : empty("当前没有发现明确风险。");
   overviewBox.innerHTML = renderOverview(overview, modelLabel);
   if (overviewRadarBox) overviewRadarBox.innerHTML = renderOverviewRadar(score, risks);
+  if (riskOverviewBox) riskOverviewBox.innerHTML = renderRiskOverview(risks, data);
   coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? renderFileStatsTable(fileChanges, data) : empty("暂无文件");
   priorityFilesBox.innerHTML = priorityFiles.length ? renderPriorityTable(priorityFiles) : empty("暂无风险排序结果");
@@ -1344,19 +1603,35 @@ function renderReport(data) {
 
 function renderAskPanel(scope, historyId, threads) {
   const refs = askRefs(scope);
-  refs.panel.classList.toggle("hidden", !historyId);
+  const sending = askSendingState[scope];
+  refs.panel.classList.remove("hidden");
+  refs.panel.classList.toggle("ask-disabled", !historyId);
   refs.panel.dataset.historyId = historyId || "";
+  if (refs.question) {
+    refs.question.disabled = !historyId;
+    refs.question.placeholder = historyId
+      ? "继续提问关于本次 PR 的问题，例如：这个风险为什么成立？"
+      : "当前报告还没有可追问的历史 ID，请重新分析后再提问。";
+  }
+  if (refs.sendBtn) {
+    refs.sendBtn.disabled = !historyId || sending;
+    refs.sendBtn.textContent = sending ? "生成中..." : "发送";
+    refs.sendBtn.classList.toggle("is-loading", sending);
+  }
   refs.suggestions.innerHTML = askSuggestions.map(question =>
     `<button type="button" data-ask-scope="${scope}" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
   ).join("");
-  refs.threads.innerHTML = threads.length ? threads.map(renderAskThread).join("") : renderAskEmptyState();
-  if (refs.context) refs.context.innerHTML = renderAskContext(threads[threads.length - 1]);
+  refs.threads.innerHTML = historyId
+    ? (threads.length ? threads.map(item => renderAskThread(item, scope)).join("") : renderAskEmptyState())
+    : renderAskUnavailableState();
+  if (refs.context) refs.context.innerHTML = renderAskContext(latestCompletedAskThread(threads));
+  requestAnimationFrame(() => scrollAskToBottom(scope));
 }
 
-async function sendAsk(scope) {
+async function sendAsk(scope, explicitQuestion = "") {
   const refs = askRefs(scope);
   const historyId = refs.panel.dataset.historyId;
-  const question = refs.question.value.trim();
+  const question = (explicitQuestion || refs.question.value || "").trim();
   if (!historyId) {
     showError("当前报告还没有保存为历史记录，暂时不能追问。");
     return;
@@ -1365,7 +1640,13 @@ async function sendAsk(scope) {
     showError("请输入要追问的问题。");
     return;
   }
-  refs.sendBtn.disabled = true;
+  if (askSendingState[scope]) return;
+  const tempThread = createOptimisticAskThread(question);
+  const nextThreads = [...askStateForScope(scope), tempThread];
+  setAskStateForScope(scope, nextThreads);
+  askSendingState[scope] = true;
+  refs.question.value = "";
+  renderAskPanel(scope, historyId, nextThreads);
   try {
     const data = await apiFetch("/api/ask", {
       method: "POST",
@@ -1376,19 +1657,95 @@ async function sendAsk(scope) {
       }),
     });
     const thread = data.ask_thread || {question, ...data, created_at: Math.floor(Date.now() / 1000)};
-    if (scope === "review") {
-      reviewAskThreadsState.push(thread);
-      renderAskPanel("review", historyId, reviewAskThreadsState);
-    } else {
-      historyAskThreadsState.push(thread);
-      renderAskPanel("history", historyId, historyAskThreadsState);
-    }
-    refs.question.value = "";
+    replaceAskThread(scope, tempThread.temp_id, {...thread, status: "done"});
   } catch (err) {
-    showError(err);
+    replaceAskThread(scope, tempThread.temp_id, {
+      ...tempThread,
+      status: "error",
+      answer: "回答生成失败，请检查模型配置或网络连接后重试。",
+      error_message: formatUserFriendlyError(err).message,
+    });
   } finally {
-    refs.sendBtn.disabled = false;
+    askSendingState[scope] = false;
+    renderAskPanel(scope, historyId, askStateForScope(scope));
   }
+}
+
+async function retryAskThread(scope, tempId) {
+  const refs = askRefs(scope);
+  const historyId = refs.panel.dataset.historyId;
+  const thread = askStateForScope(scope).find(item => item.temp_id === tempId || item.id === tempId);
+  if (!thread || askSendingState[scope]) return;
+  askSendingState[scope] = true;
+  replaceAskThread(scope, tempId, {
+    ...thread,
+    status: "loading",
+    answer: "正在分析当前 PR，请稍候...",
+    error_message: "",
+  });
+  renderAskPanel(scope, historyId, askStateForScope(scope));
+  try {
+    const data = await apiFetch("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        history_id: historyId,
+        question: thread.question,
+        model_config_id: refs.modelSelect.value,
+      }),
+    });
+    const next = data.ask_thread || {question: thread.question, ...data, created_at: Math.floor(Date.now() / 1000)};
+    replaceAskThread(scope, tempId, {...next, status: "done"});
+  } catch (err) {
+    replaceAskThread(scope, tempId, {
+      ...thread,
+      status: "error",
+      answer: "回答生成失败，请检查模型配置或网络连接后重试。",
+      error_message: formatUserFriendlyError(err).message,
+    });
+  } finally {
+    askSendingState[scope] = false;
+    renderAskPanel(scope, historyId, askStateForScope(scope));
+  }
+}
+
+function createOptimisticAskThread(question) {
+  return {
+    temp_id: `ask_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    question,
+    answer: "正在分析当前 PR，请稍候...",
+    status: "loading",
+    created_at: Math.floor(Date.now() / 1000),
+    related_files: [],
+    related_risks: [],
+    confidence: 0,
+    limitations: [],
+  };
+}
+
+function askStateForScope(scope) {
+  return scope === "history" ? historyAskThreadsState : reviewAskThreadsState;
+}
+
+function setAskStateForScope(scope, threads) {
+  if (scope === "history") historyAskThreadsState = threads;
+  else reviewAskThreadsState = threads;
+}
+
+function replaceAskThread(scope, tempId, nextThread) {
+  const threads = askStateForScope(scope).map(item =>
+    item.temp_id === tempId || item.id === tempId ? nextThread : item
+  );
+  setAskStateForScope(scope, threads);
+}
+
+function latestCompletedAskThread(threads) {
+  return [...(threads || [])].reverse().find(item => item.status !== "loading" && item.status !== "error") || threads?.[threads.length - 1];
+}
+
+function scrollAskToBottom(scope) {
+  const refs = askRefs(scope);
+  if (!refs.threads) return;
+  refs.threads.scrollTop = refs.threads.scrollHeight;
 }
 
 function askRefs(scope) {
@@ -1418,23 +1775,159 @@ function fillAskQuestion(scope, question) {
   refs.question.focus();
 }
 
-function renderAskThread(item) {
+function buildFileAskQuestion(question, file) {
+  const name = splitFilePath(file?.filename || activeDiffFile || "").name || "当前文件";
+  const score = Number(file?.change?.risk_score || 0);
+  const risk = riskScoreText(score).label || "当前风险等级";
+  if (question.includes("为什么")) {
+    return `请解释 ${name} 为什么被判为${risk}？请结合当前 PR 的 diff、规则预检和审计结论说明。`;
+  }
+  if (question.includes("人工")) {
+    return `请说明 ${name} 最需要人工确认的地方是什么？请结合相关风险、规则预检和审计结论回答。`;
+  }
+  if (question.includes("测试")) {
+    return `请分析 ${name} 是否存在测试覆盖不足的问题？请只基于当前 PR 报告和 diff 上下文回答。`;
+  }
+  if (question.includes("忽略")) {
+    return `请判断 ${name} 相关提示中哪些可能可以忽略，哪些仍需要人工复核？请说明依据。`;
+  }
+  return `${question} 请结合 ${name} 在当前 PR 中的 diff、风险和规则预检说明。`;
+}
+
+function buildCurrentFileAskContext() {
+  const filename = activeDiffFile || "";
+  const fileDiff = (lastReport?.file_diffs || []).find(item => item.filename === filename) || {};
+  const fileChange = (lastReport?.file_changes || []).find(item => item.filename === filename) || {};
+  const file = {...fileDiff, ...fileChange, filename};
+  const path = splitFilePath(filename);
+  const risks = getReportRisks(lastReport).filter(item => item.file === filename);
+  const rules = (lastReport?.rule_findings || []).filter(item => item.file === filename);
+  const score = Number(fileChange.risk_score || 0);
+  const firstLines = (fileDiff.parsed_lines || [])
+    .filter(line => line.type === "add" || line.type === "delete")
+    .slice(0, 4)
+    .map(line => `${line.type === "add" ? "+" : "-"} ${line.content}`)
+    .join("\n");
+  return {
+    filename,
+    name: path.name || filename || "当前文件",
+    dir: path.dir || ".",
+    status: statusText(file.status || fileChange.status || "modified").label,
+    riskLabel: riskScoreText(score).label,
+    additions: Number(file.additions || fileChange.additions || 0),
+    deletions: Number(file.deletions || fileChange.deletions || 0),
+    risks,
+    rules,
+    diffSummary: firstLines,
+  };
+}
+
+function findAskAnnotation(id = "") {
+  if (selectedAnnotation && (!id || selectedAnnotation.id === id)) return selectedAnnotation;
+  if (!lastReport) return null;
+  const index = buildLineAnnotations(lastReport);
+  const candidates = [];
+  for (const fileItems of Object.values(index.byFile || {})) {
+    for (const lineItems of Object.values(fileItems || {})) candidates.push(...lineItems);
+  }
+  for (const fileItems of Object.values(index.fileLevel || {})) candidates.push(...fileItems);
+  const found = candidates.find(item => item.id === id);
+  if (found) return found;
+  return selectedAnnotation || candidates[0] || null;
+}
+
+function buildAnnotationAskQuestion(annotation) {
+  if (!annotation) {
+    return "请总结当前文件最需要人工复核的风险点，并说明依据。";
+  }
+  const fileName = splitFilePath(annotation.file || activeDiffFile || "").name;
+  if (fileName) {
+    return `请解释 ${fileName} 中这条风险为什么成立？请结合代码证据、规则预检和审计结论说明是否需要人工复核。`;
+  }
+  return "请解释当前代码批注为什么成立，并结合文件、代码证据、规则预检和审计结论说明是否需要人工复核。";
+}
+
+function buildAnnotationAskContext(annotation) {
+  if (!annotation) return buildCurrentFileAskContext();
+  const fileContext = buildCurrentFileAskContextForFile(annotation.file || activeDiffFile);
+  return {
+    ...fileContext,
+    issueTitle: annotation.title || annotation.summary || "当前代码批注",
+    issueSummary: annotation.summary || "",
+    suggestion: annotation.suggestion || "",
+    evidence: annotation.evidence || "",
+    auditStatus: annotation.audit_status || "",
+    confidence: annotation.confidence,
+    riskLabel: annotation.kind === "rule" ? "规则预检" : riskLevelText(annotation.level),
+  };
+}
+
+function buildCurrentFileAskContextForFile(filename = activeDiffFile) {
+  const previous = activeDiffFile;
+  activeDiffFile = filename || previous;
+  const context = buildCurrentFileAskContext();
+  activeDiffFile = previous;
+  return context;
+}
+
+function goToAskPRWithQuestion(question, context) {
+  if (!question) return;
+  navigate("/review");
+  setSidebarActive("ask");
+  setReportTab("ask");
+  if (reviewAskContext && context) {
+    reviewAskContext.innerHTML = renderFileAskContext(context);
+  }
+  if (reviewAskPanel?.dataset.historyId) sendAsk("review", question);
+  else fillAskQuestion("review", question);
+}
+
+function renderFileAskContext(context) {
+  const riskTitles = (context.risks || []).slice(0, 3).map(item => item.issue || item.id || "相关风险");
+  const ruleTitles = (context.rules || []).slice(0, 3).map(item => item.name || item.rule_name || item.rule_id || "规则预检");
+  return `<div class="ask-context-block file-ask-context">
+    <h3>当前文件上下文</h3>
+    <p><strong>文件</strong>${escapeHtml(context.name)}</p>
+    <p><strong>路径</strong>${escapeHtml(context.dir)}</p>
+    <p><strong>状态</strong>${escapeHtml(context.status)} · ${escapeHtml(context.riskLabel)} · +${context.additions} / -${context.deletions}</p>
+    ${context.issueTitle ? `<p><strong>当前问题</strong>${escapeHtml(context.issueTitle)}</p>` : ""}
+    ${context.issueSummary ? `<p><strong>问题说明</strong>${escapeHtml(context.issueSummary)}</p>` : ""}
+    ${context.suggestion ? `<p><strong>建议</strong>${escapeHtml(context.suggestion)}</p>` : ""}
+    ${context.auditStatus ? `<p><strong>审计状态</strong>${escapeHtml(auditStatusText(context.auditStatus))}</p>` : ""}
+    ${context.confidence !== undefined ? `<p><strong>置信度</strong>${escapeHtml(confidenceLabel(context.confidence))}</p>` : ""}
+    <p><strong>相关风险</strong>${escapeHtml(riskTitles.length ? riskTitles.join("；") : "当前文件没有明确风险")}</p>
+    <p><strong>规则预检</strong>${escapeHtml(ruleTitles.length ? ruleTitles.join("；") : "当前文件没有命中规则预检")}</p>
+    ${context.evidence ? `<pre class="drawer-evidence">${escapeHtml(context.evidence)}</pre>` : context.diffSummary ? `<pre class="drawer-evidence">${escapeHtml(context.diffSummary)}</pre>` : ""}
+  </div>`;
+}
+
+function renderAskThread(item, scope = "review") {
+  const status = item.status || "done";
   const confidence = Number(item.confidence || 0);
   const files = item.related_files || [];
   const risks = item.related_risks || [];
   const limitations = item.limitations || [];
-  const badge = confidence < 60 ? `<span class="badge medium">需要人工确认</span>` : `<span class="badge low">可信度 ${confidence}%</span>`;
+  const badge = status === "loading"
+    ? `<span class="badge info">生成中</span>`
+    : status === "error"
+      ? `<span class="badge high">失败</span>`
+      : confidence < 60 ? `<span class="badge medium">需要人工确认</span>` : `<span class="badge low">可信度 ${confidence}%</span>`;
+  const threadId = item.temp_id || item.id || "";
   return `<div class="chat-turn">
-    <article class="chat-message user-message"><p>${escapeHtml(item.question || "追问")}</p></article>
-    <article class="chat-message ai-message">
-      <div class="chat-message-head"><strong>ReviewPilot AI</strong>${badge}</div>
-      <p>${escapeHtml(item.answer || "当前上下文无法确认。")}</p>
-      <div class="chat-meta">
+    <article class="chat-message user-message"><div class="chat-message-head"><strong>我</strong></div><p>${escapeHtml(item.question || "追问")}</p></article>
+    <article class="chat-message ai-message ${status === "loading" ? "loading-message" : ""} ${status === "error" ? "error-message" : ""}">
+      <div class="chat-message-head"><strong>ReviewPilot</strong>${badge}</div>
+      <p>${escapeHtml(item.answer || "当前上下文无法确认。")}${status === "loading" ? `<span class="typing-dots"><i></i><i></i><i></i></span>` : ""}</p>
+      ${item.error_message ? `<p class="ask-error-detail">${escapeHtml(item.error_message)}</p>` : ""}
+      ${status === "done" ? `<div class="chat-meta">
         <span>相关文件：${escapeHtml(files.length ? files.join(", ") : "暂无明确引用")}</span>
         <span>相关风险：${escapeHtml(risks.length ? risks.join(", ") : "暂无明确引用")}</span>
-      </div>
+      </div>` : ""}
       ${limitations.length ? `<p class="audit-note">${escapeHtml(limitations.join("；"))}</p>` : ""}
-      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>
+      <div class="inline-actions">
+        ${status === "error" ? `<button class="copy-btn" type="button" data-ask-retry="${escapeHtmlAttr(threadId)}" data-ask-scope="${escapeHtmlAttr(scope)}">重试</button><button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.question || "")}">复制问题</button>` : ""}
+        ${status === "done" ? `<button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>` : ""}
+      </div>
     </article>
   </div>`;
 }
@@ -1443,6 +1936,13 @@ function renderAskEmptyState() {
   return `<div class="ask-empty-state">
     <strong>你可以围绕本次 PR 继续提问</strong>
     <p>例如风险原因、测试覆盖、人工复核重点，回答只基于当前 Review 报告和已有上下文。</p>
+  </div>`;
+}
+
+function renderAskUnavailableState() {
+  return `<div class="ask-empty-state">
+    <strong>当前报告暂时不能追问</strong>
+    <p>Ask PR 需要基于已保存的历史记录回答。请重新分析一次 PR，系统保存报告后就可以继续追问。</p>
   </div>`;
 }
 
@@ -1505,6 +2005,7 @@ function renderDiffReview(report, focusLine = 0) {
   }
   diffFileHeader.innerHTML = renderDiffFileHeader(current);
   diffViewer.innerHTML = renderDiffLines(current, showRuleMarkers.checked, showAuditNotes.checked);
+  if (isDrawerOpen) renderCodeReviewIssuePanel(current);
   if (focusLine) {
     const target = diffViewer.querySelector(`[data-new-line="${focusLine}"]`);
     if (target) {
@@ -1518,8 +2019,10 @@ function renderDiffReview(report, focusLine = 0) {
 function matchesCodeFileFilter(file, report) {
   const score = Number(file.change.risk_score || 0);
   const hasRisk = file.risks.length > 0;
+  const needsManual = file.risks.some(isManualRisk);
   if (codeFileFilter === "risk") return hasRisk;
   if (codeFileFilter === "high") return file.risks.some(item => item.risk_level === "high") || score >= 70;
+  if (codeFileFilter === "manual") return needsManual;
   if (codeFileFilter === "deep") return isDeepAnalyzed(file.change.filename ? file.change : file, report);
   if (codeFileFilter === "low") return isLowPriorityFile(file.filename) || score < 30 && !hasRisk;
   return true;
@@ -1555,10 +2058,22 @@ function renderMissingDiffState() {
 function sortDiffFiles(files) {
   const mode = fileSortMode.value;
   return [...files].sort((a, b) => {
+    const priority = fileReviewPriority(b) - fileReviewPriority(a);
+    if (priority) return priority;
     if (mode === "count") return b.risks.length - a.risks.length || b.change.risk_score - a.change.risk_score || a.index - b.index;
     if (mode === "order") return a.index - b.index;
     return Number(b.change.risk_score || 0) - Number(a.change.risk_score || 0) || b.risks.length - a.risks.length || a.index - b.index;
   });
+}
+
+function fileReviewPriority(file) {
+  const score = Number(file.change.risk_score || 0);
+  const highRisk = file.risks.some(item => item.risk_level === "high") || score >= 70;
+  const mediumRisk = file.risks.some(item => item.risk_level === "medium") || score >= 40;
+  const issueWeight = file.risks.length ? 100 : 0;
+  const manualWeight = file.risks.some(isManualRisk) ? 80 : 0;
+  const riskWeight = highRisk ? 300 : mediumRisk ? 200 : 60;
+  return riskWeight + issueWeight + manualWeight + Math.min(score, 99);
 }
 
 function renderGroupedFileNav(files) {
@@ -1632,12 +2147,19 @@ function renderChangedFileNavItem(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const pathParts = splitFilePath(file.filename);
-  const muted = !file.risks.length ? "muted-file" : "";
-  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
-    <span class="file-icon">${renderIcon(fileIconName(file.filename))}</span>
-    <span class="file-name">${escapeHtml(pathParts.name)}</span>
-    <small class="file-path">${escapeHtml(pathParts.dir || ".")}</small>
-    <span class="file-meta ${muted}"><span class="badge ${risk.className}">${risk.label}</span><span>${file.risks.length} 条</span><span>+${file.additions} / -${file.deletions}</span></span>
+  const issueCount = file.risks.length;
+  const manual = file.risks.some(isManualRisk);
+  const typeTags = Array.from(new Set(file.risks.map(issueTypeLabel))).slice(0, 2);
+  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""} ${risk.className}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}" title="${escapeHtmlAttr(file.filename)}">
+    <span class="file-nav-main">
+      <span class="badge ${risk.className}">${risk.label}</span>
+      <span class="file-name">${escapeHtml(pathParts.name)}</span>
+    </span>
+    <span class="file-nav-meta">
+      <small>${issueCount} 问题</small>
+      ${manual ? `<small class="manual-chip">需人工复核</small>` : ""}
+    </span>
+    ${typeTags.length ? `<span class="file-type-tags">${typeTags.map(type => `<small>${escapeHtml(type)}</small>`).join("")}</span>` : ""}
   </button>`;
 }
 
@@ -1670,26 +2192,31 @@ function renderDiffFileHeader(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const reasons = (file.change.risk_reasons || []).join("；") || "普通变更文件";
+  const issueCount = file.risks.length;
   const buttons = fileAskSuggestions.map(question =>
-    `<button class="copy-btn" type="button" data-ask-scope="review" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
+    `<button class="copy-btn" type="button" data-file-ask-question="${escapeHtmlAttr(buildFileAskQuestion(question, file))}">${escapeHtml(question)}</button>`
   ).join("");
   return `<div>
     <div class="diff-title-row">
-      <div>
-        <h3>${escapeHtml(splitFilePath(file.filename).name)}</h3>
-        <p>${escapeHtml(splitFilePath(file.filename).dir || ".")} · ${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions}</p>
+      <div class="diff-file-summary">
+        <strong>${escapeHtml(splitFilePath(file.filename).name)}</strong>
+        <span title="${escapeHtmlAttr(file.filename)}">${escapeHtml(risk.label)} · +${file.additions} / -${file.deletions} · ${issueCount} 条 AI 问题 · ${escapeHtml(compactReason(file.change, reasons))}</span>
       </div>
-      <div class="segmented-control"><button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button><button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button><button type="button">${renderIcon("settings")}</button></div>
+      <div class="segmented-control diff-header-actions">
+        <span class="diff-mode-label">Unified Diff</span>
+        <details class="toolbar-popover"><summary>Ask PR 快捷问题 ▾</summary><div class="toolbar-popover-menu">${buttons}</div></details>
+        <details class="toolbar-popover"><summary>技术细节 ▾</summary><div class="toolbar-popover-menu tech-menu">
+          <p><strong>风险判定：</strong>${escapeHtml(reasons)}</p>
+          <p><strong>规则命中：</strong>${file.rules.length} 条</p>
+          <p><strong>结构化信息：</strong>risk_score ${score}；status ${escapeHtml(file.status || "modified")}；hunks ${Number(file.hunks || 0)}</p>
+        </div></details>
+        <button type="button" data-toggle-issues-panel>${isDrawerOpen ? "收起问题面板" : `AI 问题 ${issueCount}`}</button>
+      </div>
     </div>
-    <p class="diff-hint">${file.risks.length ? `这个文件有 ${file.risks.length} 条 AI 批注，点击代码行右侧的标记查看详情。` : "这个文件没有发现明确风险，仅显示代码变更。"}</p>
-    <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
-    <div class="inline-actions">${buttons}</div>
-    <details class="tech-details"><summary>查看技术细节</summary><p>${escapeHtml(reasons)}</p></details>
   </div>`;
 }
 
 function renderDiffLines(file, showRules, showAudit) {
-  if (diffViewMode === "split") return renderSplitDiffLines(file, showRules, showAudit);
   const fileLevel = renderFileLevelAnnotations(file, showAudit, showRules);
   return `${fileLevel}<div class="diff-table">${(file.parsed_lines || []).map(line => {
     const newLine = line.new_line_no || "";
@@ -1702,34 +2229,6 @@ function renderDiffLines(file, showRules, showAudit) {
       <span class="line-no new">${newLine}</span>
       <span class="line-mark">${line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}</span>
       <code>${escapeHtml(line.content)}</code>
-      <span class="annotation-cell">${renderAnnotationMarker(file.filename, line.new_line_no, annotations)}</span>
-    </div>`;
-    const comments = annotations
-      .filter(annotation => expandedAnnotations.has(annotationKey(file.filename, line.new_line_no, annotation.id)))
-      .map(annotation => renderInlineAnnotation(annotation, showAudit))
-      .join("");
-    return row + comments;
-  }).join("")}</div>`;
-}
-
-function renderSplitDiffLines(file, showRules, showAudit) {
-  const fileLevel = renderFileLevelAnnotations(file, showAudit, showRules);
-  return `${fileLevel}<div class="split-diff-table">${(file.parsed_lines || []).map(line => {
-    const newLine = line.new_line_no || "";
-    const oldLine = line.old_line_no || "";
-    const annotations = annotationsForLine(file, line.new_line_no, showRules);
-    const hasRisk = annotations.some(item => item.kind === "risk");
-    const hasRule = annotations.some(item => item.kind === "rule");
-    const rowType = line.type === "add" ? "split-add" : line.type === "delete" ? "split-delete" : "split-context";
-    const oldCode = line.type === "add" ? "" : line.content;
-    const newCode = line.type === "delete" ? "" : line.content;
-    const row = `<div class="split-diff-row ${rowType} ${hasRisk ? "has-risk" : ""} ${hasRule ? "has-rule" : ""}" data-new-line="${line.new_line_no || ""}">
-      <span class="line-no old">${oldLine}</span>
-      <span class="line-mark old">${line.type === "delete" ? "-" : " "}</span>
-      <code class="old-code">${escapeHtml(oldCode)}</code>
-      <span class="line-no new">${newLine}</span>
-      <span class="line-mark new">${line.type === "add" ? "+" : " "}</span>
-      <code class="new-code">${escapeHtml(newCode)}</code>
       <span class="annotation-cell">${renderAnnotationMarker(file.filename, line.new_line_no, annotations)}</span>
     </div>`;
     const comments = annotations
@@ -1944,6 +2443,130 @@ function renderRiskDetailDrawer(annotation) {
   </section>`;
 }
 
+function renderIssuesDrawer() {
+  if (!riskDetailDrawer) return;
+  const risks = getReportRisks(lastReport);
+  isDrawerOpen = true;
+  updateWorkbenchShellState();
+  riskDetailDrawer.innerHTML = `<section class="drawer-card issues-drawer">
+    <div class="drawer-head">
+      <div>
+        <span class="badge info">AI 问题</span>
+        <small>共 ${risks.length} 个</small>
+      </div>
+      <button class="icon-button" type="button" data-close-drawer>×</button>
+    </div>
+    <div class="drawer-scroll">
+      <h3>AI 发现的问题</h3>
+      <p class="muted">点击问题后会定位到对应文件和代码行；如果暂时没有行号，会打开文件级提示。</p>
+      <div class="issue-list compact-issue-list">
+        ${risks.length ? risks.map(renderIssueDrawerRow).join("") : empty("当前没有发现明确风险。")}
+      </div>
+    </div>
+    <div class="drawer-actions">
+      <button class="copy-btn" type="button" data-close-drawer>关闭面板</button>
+    </div>
+  </section>`;
+}
+
+function renderCodeReviewIssuePanel(file) {
+  if (!riskDetailDrawer || !file) return;
+  const issues = file.risks || [];
+  const selectedId = selectedAnnotation?.file === file.filename ? selectedAnnotation.id : "";
+  if (selectedId && !expandedIssueCards.has(selectedId)) expandedIssueCards.add(selectedId);
+  if (!selectedId && issues[0]?.id && !Array.from(expandedIssueCards).some(id => issues.some(issue => issue.id === id))) {
+    expandedIssueCards.add(issues[0].id);
+  }
+  const manualCount = issues.filter(isManualRisk).length;
+  riskDetailDrawer.innerHTML = `<section class="review-issues-panel">
+    <div class="review-issues-head">
+      <div>
+        <strong>AI 发现 ${issues.length} 个问题</strong>
+        <small>${manualCount ? `${manualCount} 个需人工复核` : "当前文件暂无人工复核标记"}</small>
+      </div>
+      <button class="icon-button" type="button" data-toggle-issues-panel title="收起问题面板">×</button>
+    </div>
+    <div class="review-issue-list">
+      ${issues.length ? issues.map(item => renderReviewIssueCard(item, selectedId)).join("") : renderNoIssuePanel(file)}
+    </div>
+    <details class="review-panel-details">
+      <summary>技术细节 ▾</summary>
+      <p>规则命中：${file.rules.length} 条；文件风险分：${Number(file.change.risk_score || 0)}；深度分析：${isDeepAnalyzed(file.change.filename ? file.change : file, lastReport) ? "是" : "否"}</p>
+    </details>
+  </section>`;
+}
+
+function renderNoIssuePanel(file) {
+  const risk = riskScoreText(Number(file.change.risk_score || 0));
+  return `<article class="review-issue-empty">
+    <span class="badge ${risk.className}">${risk.label}</span>
+    <strong>当前文件暂无明确 AI 问题</strong>
+    <p>你仍然可以阅读 diff，或展开技术细节查看规则预检和风险评分。</p>
+  </article>`;
+}
+
+function renderReviewIssueCard(item, selectedId = "") {
+  const id = item.id || `${item.file}:${item.line_start || "file"}`;
+  const view = formatRiskForUser(item);
+  const expanded = expandedIssueCards.has(id) || selectedId === id;
+  const ignored = ignoredIssueIds.has(id);
+  const resolved = resolvedIssueIds.has(id);
+  const typeLabel = issueTypeLabel(item);
+  const manual = isManualRisk(item);
+  const comment = reviewCommentForIssue(item, view);
+  return `<article class="review-issue-card ${item.risk_level || "medium"} ${expanded ? "expanded" : ""} ${ignored ? "muted-file" : ""} ${resolved ? "resolved" : ""}">
+    <div class="review-issue-card-head">
+      <div class="review-issue-badges">
+        <span class="issue-type-chip">${escapeHtml(typeLabel)}</span>
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${manual ? `<span class="manual-chip">需人工复核</span>` : ""}
+        ${ignored ? `<span class="state-chip">已忽略</span>` : ""}
+        ${resolved ? `<span class="state-chip">已处理</span>` : ""}
+      </div>
+      <button class="copy-btn" type="button" data-issue-detail="${escapeHtmlAttr(id)}">${expanded ? "收起详情" : "展开详情"}</button>
+    </div>
+    <strong class="review-issue-title">${escapeHtml(view.issueText)}</strong>
+    <small class="review-issue-location">${escapeHtml(view.locationLabel)}</small>
+    <div class="review-issue-actions">
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(comment)}">复制 Review Comment</button>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(id)}">Ask PR 追问</button>
+      <button class="copy-btn" type="button" data-risk-jump="${escapeHtmlAttr(id)}" data-risk-id="${escapeHtmlAttr(id)}" data-risk-file="${escapeHtmlAttr(item.file || "")}" data-risk-line="${item.line_start || ""}">定位</button>
+      <button class="copy-btn weak-action" type="button" data-issue-state="${escapeHtmlAttr(id)}" data-issue-state-value="ignored">${ignored ? "取消忽略" : "忽略"}</button>
+      <button class="copy-btn weak-action" type="button" data-issue-state="${escapeHtmlAttr(id)}" data-issue-state-value="resolved">${resolved ? "取消处理" : "标记已处理"}</button>
+    </div>
+    ${expanded ? `<div class="review-issue-detail">
+      <div><strong>问题说明</strong><p>${escapeHtml(view.issueText)}</p></div>
+      <div><strong>为什么重要</strong><p>${escapeHtml(view.whyItMatters)}</p></div>
+      <div><strong>建议</strong><p>${escapeHtml(view.suggestionText)}</p></div>
+      <div><strong>证据</strong><pre>${escapeHtml(view.evidenceText)}</pre></div>
+      ${view.auditText ? `<div><strong>审计结论</strong><p>${escapeHtml(view.auditText)}</p></div>` : ""}
+    </div>` : ""}
+  </article>`;
+}
+
+function reviewCommentForIssue(item, view) {
+  return view.suggestionText || view.issueText || item.suggestion || "建议人工 Reviewer 结合当前 diff 复核。";
+}
+
+function renderIssueDrawerRow(item) {
+  const view = formatRiskForUser(item);
+  const location = item.line_start ? `${item.file}:${item.line_start}` : (item.file || "文件级提示");
+  const annotationId = item.id || item.file || "";
+  return `<article class="drawer-issue-card ${item.risk_level || "medium"}">
+    <div class="drawer-issue-head">
+      <span class="badge ${item.risk_level || "medium"}">${riskLevelText(item.risk_level)}</span>
+      <span class="issue-status">${escapeHtml(typeText(item.type))}</span>
+    </div>
+    <strong>${escapeHtml(view.issueText)}</strong>
+    <small title="${escapeHtmlAttr(location)}">${escapeHtml(location)}</small>
+    <p>${escapeHtml(view.whyItMatters)}</p>
+    <div class="inline-actions">
+      <button class="copy-btn" type="button" data-risk-jump="${escapeHtmlAttr(item.id || "")}" data-risk-id="${escapeHtmlAttr(item.id || "")}" data-risk-file="${escapeHtmlAttr(item.file || "")}" data-risk-line="${item.line_start || ""}">定位代码</button>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(annotationId)}">追问</button>
+    </div>
+  </article>`;
+}
+
 function renderFileLevelAnnotations(file, showAudit, showRules) {
   const items = (file.fileLevelAnnotations || []).filter(item => showRules || item.kind !== "rule");
   if (!items.length) return "";
@@ -2053,7 +2676,11 @@ function renderFileStatsTable(files, report) {
 }
 
 function renderChangedFilesPage(report) {
-  if (!changedFilesBox || !report) return;
+  if (!changedFilesBox) return;
+  if (!report) {
+    changedFilesBox.innerHTML = empty("当前报告暂无文件变更数据。");
+    return;
+  }
   const fileChanges = report.file_changes || report.files || [];
   const priority = report.priority_files || report.risk_ranking || [];
   const diffs = report.file_diffs || [];
@@ -2088,7 +2715,7 @@ function renderChangedFilesPage(report) {
     return true;
   });
   if (!fileChanges.length) {
-    changedFilesBox.innerHTML = empty("当前报告没有文件变更统计。");
+    changedFilesBox.innerHTML = empty("当前报告暂无文件变更数据。");
     return;
   }
   if (!rows.length) {
@@ -2154,11 +2781,19 @@ function renderPriorityFile(file) {
 
 function renderRuleFinding(item) {
   const view = formatRuleFindingForUser(item);
-  return `<div class="compact-row rule-finding-row">
-    <span class="table-main">${escapeHtml(view.title)}</span>
-    <span>${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span></span>
-    <span>${escapeHtml(view.findingText)}</span>
+  return `<div class="audit-card rule-finding-row">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.title)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || item.severity || "medium")}
+        ${auditStatusBadge(item.status)}
+      </div>
+    </div>
+    <p class="audit-desc">${escapeHtml(view.findingText)}</p>
+    <p class="audit-suggestion">${escapeHtml(view.suggestionText)}</p>
   </div>`;
 }
 
@@ -2171,8 +2806,7 @@ function renderRuleFindingGroup(items) {
     <span>已采纳 ${accepted} 条</span>
     <span>需人工确认 ${manual} 条</span>
   </div>
-  <div class="compact-list">
-    <div class="compact-row compact-head"><span>规则名称</span><span>位置</span><span>状态</span><span>说明</span></div>
+  <div class="audit-card-list">
     ${items.map(renderRuleFinding).join("")}
   </div>`;
 }
@@ -2206,11 +2840,17 @@ function renderAuditReport(data) {
 }
 
 function renderReviewerRisk(item) {
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(item.file || "未知文件")}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${riskLevelText(item.risk_level)}</span></span>
-    <span>${confidenceLabel(item.reviewer_confidence ?? item.confidence)}</span>
-    <span>${escapeHtml(item.issue || "未说明问题")}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(item.issue || "未说明问题")}</strong>
+        <span title="${escapeHtmlAttr(item.file || "未知文件")}">${escapeHtml(item.file || "未知文件")}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.reviewer_confidence ?? item.confidence))}</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2243,24 +2883,42 @@ function renderAuditorResult(auditor) {
 }
 
 function renderAuditRows(items, mapper) {
-  return `<div class="compact-list">${items.map(item => {
+  return `<div class="audit-card-list">${items.map(item => {
     const [main, state, confidence, detail] = mapper(item);
-    return `<div class="compact-row audit-row">
-      <span class="table-main">${escapeHtml(main)}</span>
-      <span><span class="badge info">${escapeHtml(state)}</span></span>
-      <span>${escapeHtml(confidence)}</span>
-      <span>${escapeHtml(detail)}</span>
+    const stateText = String(state || "");
+    const stateBadge = ["high", "medium", "low"].includes(String(item.risk_level || "").toLowerCase())
+      ? riskLevelBadge(item.risk_level)
+      : stateText.includes("->")
+        ? `<span class="badge audit-downgraded">${escapeHtml(stateText)}</span>`
+        : auditActionBadge(item.audit_action || stateText);
+    return `<div class="audit-card audit-row">
+      <div class="audit-card-head">
+        <div class="audit-title-block">
+          <strong title="${escapeHtmlAttr(main)}">${escapeHtml(main)}</strong>
+          <span>${escapeHtml(confidence || "未返回置信度")}</span>
+        </div>
+        <div class="audit-badges">${stateBadge}</div>
+      </div>
+      <p class="audit-desc">${escapeHtml(detail)}</p>
     </div>`;
   }).join("")}</div>`;
 }
 
 function renderFinalRisk(item) {
   const view = formatRiskForUser(item);
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
-    <span>${confidenceLabel(item.final_confidence)}</span>
-    <span>${escapeHtml(view.issueText)}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.issueText)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${auditStatusBadge(item.audit_status || item.type)}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.final_confidence))}</span>
+      </div>
+    </div>
+    <p class="audit-desc">${escapeHtml(view.whyItMatters)}</p>
   </div>`;
 }
 
@@ -2276,11 +2934,18 @@ function renderModule(item) {
 
 function renderRisk(item) {
   const view = formatRiskForUser(item);
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
-    <span>${confidenceLabel(item.confidence)}</span>
-    <span>${escapeHtml(view.issueText)}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.issueText)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${auditStatusBadge(item.audit_status || item.type)}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.confidence))}</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2388,6 +3053,16 @@ function fileFocusText(file, fallback) {
   return points.join("；") + "。";
 }
 
+function compactReason(file, fallback) {
+  const score = Number(file.risk_score || file.priority || 0);
+  const reasons = Array.isArray(file.risk_reasons) ? file.risk_reasons : [];
+  if (reasons.some(item => String(item).includes("变更规模"))) return "结构性修改";
+  if (reasons.some(item => String(item).includes("关键路径"))) return "关键路径变更";
+  if (score >= 70) return "高优先级变更";
+  if (score >= 40) return "需要重点确认";
+  return String(fallback || "普通变更").split("；")[0] || "普通变更";
+}
+
 function rewriteReviewComment(comment) {
   if (!comment) return "";
   if (comment.includes("path=\"*\"") || comment.includes("NotFound") || comment.includes("兜底")) {
@@ -2461,9 +3136,18 @@ function setReportTab(tab) {
   document.querySelectorAll("[data-report-tab]").forEach(button => {
     button.classList.toggle("active", button.dataset.reportTab === tab);
   });
+  if (!hasReport) {
+    renderFeatureIntro(tab);
+    return;
+  }
   document.querySelectorAll("[data-report-panel]").forEach(panel => {
     panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
   });
+  if (tab === "code") {
+    isDrawerOpen = true;
+    updateWorkbenchShellState();
+    renderDiffReview(lastReport);
+  }
   if (tab === "changed") renderChangedFilesPage(lastReport);
 }
 
@@ -2480,20 +3164,21 @@ function sidebarKeyForRoute(route) {
     "/history": "history",
     "/settings/models": "model_settings",
     "/settings/rules": "system_settings",
-    "/review": sidebarActiveKey || "code_review",
+    "/review": sidebarActiveKey || "result_visualization",
   };
-  return map[route] || sidebarActiveKey;
+  return map[route] || sidebarActiveKey || "result_visualization";
 }
 
 function sidebarKeyForReportTab(tab) {
   const map = {
+    result: "result_visualization",
     code: "code_review",
     changed: "changed_files",
-    overview: "summary",
+    overview: "overview",
     audit: "audit",
     ask: "ask",
   };
-  return map[tab] || "code_review";
+  return map[tab] || "result_visualization";
 }
 
 function safeFilename(value) {
@@ -2547,38 +3232,50 @@ function createApiError(message, meta = {}) {
 }
 
 function startProgress(title, text) {
+  const mode = analysisMode.value;
+  const isDeep = mode === "deep-audit" || mode === "deep_audit";
   reportContent.classList.remove("hidden");
   emptyReport.classList.add("hidden");
   if (progressModalTitle) progressModalTitle.textContent = "正在分析 PR";
   progressModal.classList.remove("hidden");
-  progressModalText.textContent = text || "当前阶段：准备分析";
+  progressModalText.textContent = isDeep
+    ? "深度审计会连续调用 Reviewer 和 Auditor 两个模型，耗时会比快速分析更长，请稍等。"
+    : (text || "当前阶段：准备分析");
   clearInterval(progressTimer);
   progressStepIndex = 0;
-  setProgressState({task_id: "", progress: 10, current_stage: "fetch_pr"});
+  progressState = null;
+  updateProgressSafely(8, "fetch_pr", {task_id: "", mode});
   progressTimer = setInterval(() => {
-    const steps = [
-      {progress: 25, stage: "parse_diff"},
-      {progress: 40, stage: "rank_files"},
-      {progress: 55, stage: "rule_check"},
-      {progress: 70, stage: "reviewer"},
-      {progress: 85, stage: "auditor"},
-    ];
+    const steps = progressStepsForMode(mode);
     const next = steps[progressStepIndex];
     if (!next) return;
     progressStepIndex += 1;
-    setProgressState({progress: next.progress, current_stage: next.stage});
-  }, 1200);
+    updateProgressSafely(next.progress, next.stage);
+  }, isDeep ? 2200 : 1200);
+}
+
+function progressStepsForMode(mode) {
+  const base = [
+    {progress: 25, stage: "parse_diff"},
+    {progress: 40, stage: "rank_files"},
+    {progress: 55, stage: "rule_check"},
+    {progress: 75, stage: "reviewer"},
+  ];
+  if (mode === "deep-audit" || mode === "deep_audit") {
+    return [...base, {progress: 85, stage: "auditor"}];
+  }
+  return [...base, {progress: 85, stage: "reviewer"}];
 }
 
 function updateProgress(value, text) {
   if (text) progressModalText.textContent = text;
-  setProgressState({progress: value, current_stage: progressStageForPercent(value)});
+  updateProgressSafely(value, progressStageForPercent(value));
 }
 
 function finishProgress(title, text) {
   clearInterval(progressTimer);
   progressModalText.textContent = text || "报告已生成。";
-  setProgressState({progress: 100, current_stage: "finalize"});
+  updateProgressSafely(100, "finalize");
   setTimeout(() => progressModal.classList.add("hidden"), 500);
 }
 
@@ -2588,9 +3285,21 @@ function stopProgress() {
   setTimeout(() => progressModal.classList.add("hidden"), 900);
 }
 
-function progressStageForPercent(value) {
-  if (value >= 85) return "finalize";
-  if (value >= 70) return "auditor";
+function updateProgressSafely(nextProgress, nextStage, extra = {}) {
+  const previousProgress = Number(progressState?.progress || 0);
+  const incomingProgress = Number(nextProgress || 0);
+  setProgressState({
+    ...extra,
+    progress: Math.max(previousProgress, incomingProgress),
+    current_stage: nextStage || progressState?.current_stage || "fetch_pr",
+  });
+}
+
+function progressStageForPercent(value, mode = progressState?.mode ?? analysisMode?.value) {
+  if (value >= 90) return "finalize";
+  if (mode === "deep-audit" || mode === "deep_audit") {
+    if (value >= 70) return "auditor";
+  }
   if (value >= 55) return "reviewer";
   if (value >= 40) return "rule_check";
   if (value >= 25) return "rank_files";
@@ -2599,17 +3308,27 @@ function progressStageForPercent(value) {
 }
 
 function setProgressState(partial) {
-  const current = partial.current_stage || progressState?.current_stage || "fetch_pr";
-  const currentIndex = reviewProgressStages.findIndex(stage => stage.key === current);
+  const mode = partial.mode ?? progressState?.mode ?? analysisMode?.value ?? "fast";
+  const stages = progressStagesForMode(mode);
+  const previousProgress = Number(progressState?.progress || 0);
+  const requestedProgress = Number(partial.progress ?? previousProgress);
+  const progress = partial.failed ? previousProgress : Math.max(previousProgress, requestedProgress);
+  const requestedStage = partial.current_stage || progressState?.current_stage || "fetch_pr";
+  const requestedIndex = Math.max(0, stages.findIndex(stage => stage.key === requestedStage));
+  const previousIndex = Math.max(0, stages.findIndex(stage => stage.key === progressState?.current_stage));
+  const progressIndex = Math.max(0, stages.findIndex(stage => stage.key === progressStageForPercent(progress, mode)));
+  const currentIndex = partial.failed ? previousIndex : Math.max(previousIndex, requestedIndex, progressIndex);
+  const current = stages[currentIndex]?.key || requestedStage;
   progressState = {
     task_id: partial.task_id ?? progressState?.task_id ?? "",
-    progress: partial.progress ?? progressState?.progress ?? 0,
+    mode,
+    progress,
     current_stage: current,
-    stages: reviewProgressStages.map((stage, index) => ({
+    stages: stages.map((stage, index) => ({
       ...stage,
       status: partial.failed && stage.key === current
         ? "failed"
-        : index < currentIndex || partial.progress >= 100
+        : index < currentIndex || progress >= 100
           ? "done"
           : index === currentIndex
             ? "running"
@@ -2621,7 +3340,7 @@ function setProgressState(partial) {
 
 function renderProgressModal() {
   const progress = Math.max(0, Math.min(100, Number(progressState?.progress || 0)));
-  const current = reviewProgressStages.find(stage => stage.key === progressState?.current_stage);
+  const current = progressStagesForMode(progressState?.mode).find(stage => stage.key === progressState?.current_stage);
   progressModalText.textContent = `当前阶段：${current?.label || "准备分析"}`;
   progressPercent.textContent = `${Math.round(progress)}%`;
   progressBar.style.width = `${progress}%`;
@@ -2742,7 +3461,81 @@ function typeText(type) {
   return map[type] || "Review 建议";
 }
 
+function issueTypeLabel(item = {}) {
+  const text = `${item.type || ""} ${item.issue || ""} ${item.reason || ""} ${item.suggestion || ""} ${item.evidence || ""}`.toLowerCase();
+  if (/xss|csrf|token|secret|password|auth|permission|越权|权限|注入|泄露|innerhtml|user id|userid/.test(text)) return "安全风险";
+  if (/test|coverage|测试|覆盖/.test(text)) return "测试覆盖不足";
+  if (/null|undefined|exception|error|失败|崩溃|空指针|bug/.test(text)) return "潜在 Bug";
+  if (/boundary|边界|empty|空值|重复|幂等|callback/.test(text)) return "边界条件";
+  if (/performance|性能|循环|缓存|耗时/.test(text)) return "性能风险";
+  if (/style|format|lint|命名|格式/.test(text)) return "代码风格";
+  if (/maintain|refactor|复杂|可维护|耦合|重复/.test(text)) return "可维护性";
+  if (item.type === "confirmed_issue") return "潜在 Bug";
+  if (item.type === "needs_human_check") return "边界条件";
+  return "其他";
+}
+
+function isManualRisk(item = {}) {
+  return item.type === "needs_human_check"
+    || item.audit_status === "needs_human_check"
+    || item.audit_status === "downgraded"
+    || Number(item.final_confidence ?? item.confidence ?? 100) < 60;
+}
+
 function auditStatusText(status) {
+  return getAuditStatusMeta(status).label;
+}
+
+function getAuditStatusMeta(status) {
+  const raw = String(status || "").trim();
+  const normalized = raw.toLowerCase();
+  const accepted = ["accepted", "adopted", "risk", "keep", "已采纳为风险", "审计通过", "保留"];
+  const pending = ["pending_ai_review", "pending", "待 ai 判断", "待AI判断", "等待 AI 判断"];
+  const manual = ["needs_human_check", "manual", "待确认", "需要人工确认", "需要人工复核", "已降级为待确认"];
+  const ignored = ["ignored", "skipped", "已忽略"];
+  const downgraded = ["downgraded", "downgrade", "降级", "已降级"];
+  const removed = ["false_positive", "removed", "remove", "疑似误报", "已移除", "已作为疑似误报移除"];
+  if (accepted.includes(raw) || accepted.includes(normalized)) {
+    return {label: "已采纳为风险", className: "audit-accepted", description: "该项已被系统采纳为有效风险。"};
+  }
+  if (pending.includes(raw) || pending.includes(normalized)) {
+    return {label: "等待 AI 判断", className: "audit-unknown", description: "规则预检已命中，等待 AI 结合 diff 判断。"};
+  }
+  if (manual.includes(raw) || manual.includes(normalized)) {
+    return {label: "需要人工确认", className: "audit-manual", description: "证据不足或上下文不完整，需要 Reviewer 人工判断。"};
+  }
+  if (ignored.includes(raw) || ignored.includes(normalized)) {
+    return {label: "已忽略", className: "audit-ignored", description: "该项被判断为低价值提示或暂不需要处理。"};
+  }
+  if (downgraded.includes(raw) || downgraded.includes(normalized)) {
+    return {label: "已降级", className: "audit-downgraded", description: "原本可能是风险，经审计后降级为提示或人工确认。"};
+  }
+  if (removed.includes(raw) || removed.includes(normalized)) {
+    return {label: "疑似误报", className: "audit-removed", description: "Auditor 判断该项证据不足或明显不成立。"};
+  }
+  return {label: raw || "等待 AI 判断", className: "audit-unknown", description: "等待进一步判断。"};
+}
+
+function auditStatusBadge(status) {
+  const meta = getAuditStatusMeta(status);
+  return `<span class="badge audit-status ${meta.className}" title="${escapeHtmlAttr(meta.description)}">${escapeHtml(meta.label)}</span>`;
+}
+
+function auditActionBadge(action) {
+  const map = {
+    keep: "accepted",
+    downgrade: "downgraded",
+    remove: "removed",
+    needs_human_check: "needs_human_check",
+  };
+  return auditStatusBadge(map[action] || action);
+}
+
+function riskLevelBadge(level) {
+  return `<span class="badge risk-level ${level || "medium"}">${escapeHtml(riskLevelText(level))}</span>`;
+}
+
+function legacyAuditStatusText(status) {
   const map = {
     accepted: "审计通过",
     downgraded: "已降级为待确认",

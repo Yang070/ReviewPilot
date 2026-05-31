@@ -10,16 +10,16 @@ class QwenError(Exception):
         self.raw_text = raw_text
 
 
-def call_qwen(messages: list[dict], api_key: str, model: str, base_url=None) -> dict:
-    return call_chat_model(messages, api_key, model, base_url)
+def call_qwen(messages: list[dict], api_key: str, model: str, base_url=None, timeout: int = 60) -> dict:
+    return call_chat_model(messages, api_key, model, base_url, timeout=timeout)
 
 
-def call_chat_model(messages: list[dict], api_key: str, model: str, base_url=None, provider="") -> dict:
+def call_chat_model(messages: list[dict], api_key: str, model: str, base_url=None, provider="", timeout: int = 60) -> dict:
     api_key = api_key.strip()
     if not api_key:
         raise QwenError("当前模型配置没有 API Key，请先在模型设置中心检查。")
     if provider == "Claude":
-        return call_claude(messages, api_key, model, base_url)
+        return call_claude(messages, api_key, model, base_url, timeout=timeout)
 
     base_url = base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     payload = {
@@ -38,19 +38,21 @@ def call_chat_model(messages: list[dict], api_key: str, model: str, base_url=Non
     )
 
     try:
-        with urlopen(req, timeout=60) as resp:
+        with urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise QwenError(f"模型调用失败：HTTP {exc.code}。请检查 API Key、模型名称、API 额度或切换模型配置。{detail[:240]}") from exc
     except URLError as exc:
         raise QwenError(f"模型网络错误：{exc.reason}。请检查 base_url 或切换模型配置。") from exc
+    except TimeoutError as exc:
+        raise QwenError("模型调用超时。深度审计需要连续调用初审和审计模型，请稍后重试，或切换更快的模型配置。") from exc
 
     content = data["choices"][0]["message"]["content"]
     return parse_json_content(content)
 
 
-def call_claude(messages: list[dict], api_key: str, model: str, base_url=None) -> dict:
+def call_claude(messages: list[dict], api_key: str, model: str, base_url=None, timeout: int = 60) -> dict:
     base_url = base_url or "https://api.anthropic.com/v1"
     system = "\n".join(item["content"] for item in messages if item.get("role") == "system")
     user_messages = [
@@ -75,13 +77,15 @@ def call_claude(messages: list[dict], api_key: str, model: str, base_url=None) -
         method="POST",
     )
     try:
-        with urlopen(req, timeout=60) as resp:
+        with urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise QwenError(f"Claude 调用失败：HTTP {exc.code}。请检查 API Key、模型名称、API 额度或切换模型配置。{detail[:240]}") from exc
     except URLError as exc:
         raise QwenError(f"Claude 网络错误：{exc.reason}。请检查 base_url 或切换模型配置。") from exc
+    except TimeoutError as exc:
+        raise QwenError("Claude 调用超时。深度审计需要连续调用初审和审计模型，请稍后重试，或切换更快的模型配置。") from exc
     content = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
     return parse_json_content(content)
 
@@ -91,7 +95,7 @@ def test_chat_connection(api_key: str, model: str, base_url: str, provider="") -
         {"role": "system", "content": "Return JSON only."},
         {"role": "user", "content": "{\"ok\":true}"},
     ]
-    call_chat_model(messages, api_key, model, base_url, provider)
+    call_chat_model(messages, api_key, model, base_url, provider, timeout=30)
     return True
 
 
