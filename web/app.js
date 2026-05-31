@@ -41,7 +41,7 @@ sampleBtn.addEventListener("click", () => {
 });
 
 reviewBtn.addEventListener("click", async () => {
-  setStatus("Reviewing...");
+  setStatus("评审中...");
   reviewBtn.disabled = true;
   try {
     const res = await fetch("/api/review", {
@@ -52,7 +52,7 @@ reviewBtn.addEventListener("click", async () => {
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || "Review failed");
     renderReport(data);
-    setStatus("Done");
+    setStatus("完成");
   } catch (err) {
     setStatus(err.message);
   } finally {
@@ -61,15 +61,15 @@ reviewBtn.addEventListener("click", async () => {
 });
 
 function renderReport(data) {
-  reportTitle.textContent = data.pr.title || "Review Report";
-  summaryText.textContent = data.summary || "No summary returned.";
+  reportTitle.textContent = data.pr.title || "评审报告";
+  summaryText.textContent = data.summary || "模型没有返回摘要。";
   riskBadge.textContent = data.riskLevel || "low";
   riskBadge.className = `badge ${data.riskLevel || "low"}`;
   fileCount.textContent = data.files.length;
   evidenceCount.textContent = data.evidenceCount;
   findingCount.textContent = data.findings.length;
-  filesBox.innerHTML = data.files.length ? data.files.map(renderFile).join("") : empty("No files");
-  findingsBox.innerHTML = data.findings.length ? data.findings.map(renderFinding).join("") : empty("No findings");
+  filesBox.innerHTML = data.files.length ? data.files.map(renderFile).join("") : empty("暂无文件");
+  findingsBox.innerHTML = data.findings.length ? data.findings.map(renderFinding).join("") : empty("暂无发现");
   testsBox.innerHTML = data.testSuggestions.map(item => `<li>${escapeHtml(item)}</li>`).join("");
 }
 
@@ -90,10 +90,10 @@ function renderFinding(item) {
       <span>${escapeHtml(item.file)}${line}</span>
       <span class="badge ${item.severity}">${item.severity}</span>
     </div>
-    <p><strong>Evidence:</strong> ${escapeHtml(item.evidence)}</p>
-    <p><strong>Reason:</strong> ${escapeHtml(item.message)}</p>
-    <p><strong>Suggestion:</strong> ${escapeHtml(item.suggestion)}</p>
-    <p><strong>Confidence:</strong> ${Math.round(item.confidence * 100)}%</p>
+    <p><strong>证据：</strong>${escapeHtml(item.evidence)}</p>
+    <p><strong>原因：</strong>${escapeHtml(item.message)}</p>
+    <p><strong>建议：</strong>${escapeHtml(item.suggestion)}</p>
+    <p><strong>置信度：</strong>${Math.round(item.confidence * 100)}%</p>
   </article>`;
 }
 

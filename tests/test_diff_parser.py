@@ -1,6 +1,7 @@
 import unittest
 
 from reviewpilot.diff_parser import build_evidence, parse_diff
+from reviewpilot.review_service import build_messages
 
 
 class DiffParserTest(unittest.TestCase):
@@ -30,6 +31,10 @@ class DiffParserTest(unittest.TestCase):
         evidence = build_evidence(parse_diff(diff))
         self.assertEqual(len(evidence), 1)
         self.assertIn("debug-log", evidence[0]["signals"])
+
+    def test_review_prompt_requires_chinese_output(self):
+        messages = build_messages({}, [], [])
+        self.assertIn("Chinese", messages[1]["content"])
 
 
 if __name__ == "__main__":

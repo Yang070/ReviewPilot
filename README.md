@@ -1,37 +1,47 @@
 # ReviewPilot
 
-ReviewPilot is an AI Pull Request review assistant. It accepts a public GitHub PR URL or a pasted unified diff, builds code-change evidence, and asks Qwen to generate an evidence-based review report.
+ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公开 GitHub PR 链接，或直接粘贴 unified diff。系统会解析代码变更、构建证据链，并调用千问生成基于证据的 Review 报告。
 
-## Features
+## 功能
 
-- Fetch public GitHub PR diff without login.
-- Parse changed files, hunks, additions, and deletions.
-- Build compact evidence for changed code.
-- Call Qwen through Alibaba Cloud Model Studio OpenAI-compatible Chat Completions.
-- Require review findings to include file, evidence, severity, confidence, and suggestion.
-- Keep API keys on the local backend, never in browser code.
+- 支持无需登录获取公开 GitHub PR 的 diff。
+- 支持直接粘贴 unified diff 进行分析。
+- 解析变更文件、hunk、新增行和删除行。
+- 从代码变更中抽取紧凑的证据链。
+- 通过阿里云百炼 OpenAI 兼容接口调用千问。
+- 要求每条 Review 建议包含文件、证据、风险等级、置信度和修改建议。
+- API Key 只保存在本地后端环境变量中，不暴露给浏览器。
 
-## Run Locally
+## 项目文档
 
-Set your Qwen API key first:
+- [需求文档](docs/需求文档.md)
+- [接口文档](docs/接口文档.md)
+- [Demo 样例文档](docs/Demo样例文档.md)
+- [赛题对齐说明](docs/赛题对齐说明.md)
+- [提交与 PR 规范](docs/提交与PR规范.md)
+- [架构设计](docs/architecture.md)
+
+## 本地运行
+
+先设置千问 API Key：
 
 ```powershell
-$env:DASHSCOPE_API_KEY="your_api_key"
+$env:DASHSCOPE_API_KEY="你的_api_key"
 ```
 
-Start the local server:
+启动本地服务：
 
 ```powershell
 python server.py
 ```
 
-Open:
+打开浏览器访问：
 
 ```text
 http://127.0.0.1:8770
 ```
 
-Optional environment variables:
+可选环境变量：
 
 ```text
 QWEN_MODEL=qwen-plus
@@ -39,39 +49,49 @@ QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 REVIEWPILOT_PORT=8770
 ```
 
-## Usage
+## 使用方式
 
-Use one of these inputs:
+任选一种输入方式：
 
-- Public GitHub PR URL, for example `https://github.com/owner/repo/pull/1`.
-- Pasted unified diff.
+- 输入公开 GitHub PR 链接，例如 `https://github.com/owner/repo/pull/1`。
+- 粘贴 unified diff。
 
-The current project scope only supports public repositories. If GitHub rate limiting or network access fails, paste the diff manually.
+当前版本只支持公开仓库，不需要 GitHub Token。如果遇到 GitHub 访问频率限制或网络失败，可以手动粘贴 diff 作为兜底方案。
 
-## Why Qwen
+## 为什么使用千问
 
-ReviewPilot uses Qwen as the default model provider. Alibaba Cloud Model Studio documents an OpenAI-compatible Chat API with the Beijing base URL `https://dashscope.aliyuncs.com/compatible-mode/v1` and model examples such as `qwen-plus`.
+ReviewPilot 默认使用千问作为大语言模型。阿里云百炼提供 OpenAI 兼容的 Chat Completions 接口，默认地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1`，模型默认使用 `qwen-plus`。
 
-## Design Notes
+## 设计思路
 
-The project follows an evidence-first design:
+项目采用“证据优先”的设计：
 
 ```text
-PR URL or diff
--> diff parser
--> evidence builder
--> Qwen review provider
--> evidence validator
--> review report
+PR 链接或 diff
+-> diff 解析器
+-> 证据链构建
+-> 千问 Review Provider
+-> 证据校验
+-> Review 报告
 ```
 
-This reduces hallucination by asking the model to reason only from the provided diff and evidence list. Findings that do not cite changed files or concrete evidence are filtered before display.
+这样做的目的是减少大模型幻觉。模型只能基于提供的 diff 和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端也会过滤没有引用变更文件或具体证据的 Review 建议。
 
-## Development Rules
+## 幻觉与模板化控制
 
-Each PR should contain one small feature. PR descriptions should include:
+- 每条建议必须绑定变更文件。
+- 每条建议必须包含具体证据。
+- 风险等级和置信度分开展示。
+- 低证据建议不会作为确定问题展示。
+- Prompt 要求模型只输出结构化 JSON，方便后端校验。
 
-- What changed.
-- Why it was implemented this way.
-- How it was tested.
-- Screenshots or sample output when UI changes.
+## 开发规范
+
+每个 PR 只做一个小功能，PR 描述需要包含：
+
+- 本次改了什么。
+- 为什么这样实现。
+- 如何测试。
+- 如果涉及界面变化，补充截图或示例输出。
+
+主分支应始终保持可运行状态，避免最后一天一次性提交所有代码。

@@ -1,49 +1,49 @@
-# ReviewPilot Architecture
+# ReviewPilot 架构设计
 
-ReviewPilot uses an evidence-first pipeline to reduce hallucination and template-style output.
+ReviewPilot 使用“证据优先”的分析流程，目标是减少大语言模型在代码评审中的幻觉问题和模板化输出。
 
 ```text
-Public PR URL or pasted diff
--> GitHub public PR fetcher
--> unified diff parser
--> evidence builder
--> Qwen review provider
--> evidence validator
--> report UI
+公开 PR 链接或粘贴 diff
+-> GitHub 公开 PR 获取器
+-> unified diff 解析器
+-> 代码证据构建器
+-> 千问 Review Provider
+-> 证据校验器
+-> Review 报告界面
 ```
 
-## Why This Design
+## 为什么这样设计
 
-The model is not allowed to review from memory. It receives changed files and compact evidence extracted from the diff. Every finding must point to a changed file and cite evidence.
+模型不能凭记忆或常识自由发挥。后端会先从 diff 中抽取变更文件和紧凑证据，再把这些证据交给模型。每条 Review 建议都必须指向具体变更文件，并引用对应证据。
 
-## Qwen Provider
+## 千问 Provider
 
-The default provider is Qwen through Alibaba Cloud Model Studio OpenAI-compatible Chat Completions.
+默认模型 Provider 是千问，调用方式为阿里云百炼 OpenAI 兼容 Chat Completions 接口。
 
-Environment variables:
+环境变量：
 
 ```text
-DASHSCOPE_API_KEY=your_api_key
+DASHSCOPE_API_KEY=你的_api_key
 QWEN_MODEL=qwen-plus
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
-## Public GitHub PR Support
+## 公开 GitHub PR 支持
 
-ReviewPilot calls the public GitHub REST PR endpoint, then downloads the PR diff URL. It does not require GitHub login or a GitHub token in the current scope.
+ReviewPilot 会调用 GitHub 公开 PR 接口，再下载该 PR 对应的 diff。当前版本只支持公开仓库，不要求 GitHub 登录，也不需要 GitHub Token。
 
-## Hallucination Controls
+## 幻觉控制
 
-- The model receives only PR metadata, changed files, and evidence extracted from added lines.
-- The prompt forbids invented files, APIs, tables, and line numbers.
-- The backend filters findings that do not reference changed files.
-- Findings without evidence are not displayed.
-- Confidence and severity are separated.
+- 模型只接收 PR 元信息、变更文件和从新增代码中抽取的证据。
+- Prompt 明确禁止编造文件、接口、数据库表和行号。
+- 后端会过滤没有引用变更文件的 finding。
+- 没有证据的 finding 不会展示。
+- 风险等级和置信度分开展示，避免把不确定判断伪装成确定问题。
 
-## Future Work
+## 未来扩展
 
-- Add file chunking for very large PRs.
-- Add a lightweight code graph for imports, functions, and test relations.
-- Add simulated GitHub review comments.
-- Add repository rule configuration.
-- Add unit tests for evidence validation.
+- 为大型 PR 增加文件分块分析。
+- 增加轻量代码图谱，记录 import、函数和测试关系。
+- 增加模拟 GitHub Review 评论功能。
+- 增加仓库级规则配置。
+- 补充证据校验和 GitHub PR 获取逻辑的单元测试。

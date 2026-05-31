@@ -12,7 +12,7 @@ class GitHubError(Exception):
 def parse_pr_url(url: str) -> tuple[str, str, int]:
     match = re.match(r"^https://github\.com/([^/]+)/([^/]+)/pull/(\d+)", url.strip())
     if not match:
-        raise GitHubError("Invalid GitHub PR URL.")
+        raise GitHubError("GitHub PR 链接格式不正确。")
     return match.group(1), match.group(2), int(match.group(3))
 
 
@@ -40,7 +40,7 @@ def request_json(url: str) -> dict:
 def request_text(url: str) -> str:
     host = urlparse(url).netloc
     if host not in {"api.github.com", "github.com"}:
-        raise GitHubError("Only github.com public PR URLs are supported.")
+        raise GitHubError("当前仅支持 github.com 的公开 PR 链接。")
     req = Request(url, headers={
         "Accept": "application/vnd.github+json",
         "User-Agent": "ReviewPilot/0.1",
@@ -50,9 +50,9 @@ def request_text(url: str) -> str:
             return resp.read().decode("utf-8", errors="replace")
     except HTTPError as exc:
         if exc.code == 403:
-            raise GitHubError("GitHub rate limit reached. Paste the diff manually.") from exc
+            raise GitHubError("GitHub 访问频率受限，请稍后重试或手动粘贴 diff。") from exc
         if exc.code == 404:
-            raise GitHubError("Public PR not found or repository is private.") from exc
-        raise GitHubError(f"GitHub request failed: HTTP {exc.code}") from exc
+            raise GitHubError("未找到公开 PR，或该仓库不是公开仓库。") from exc
+        raise GitHubError(f"GitHub 请求失败：HTTP {exc.code}") from exc
     except URLError as exc:
-        raise GitHubError(f"GitHub network error: {exc.reason}") from exc
+        raise GitHubError(f"GitHub 网络错误：{exc.reason}") from exc

@@ -3,6 +3,7 @@ index 1111111..2222222 100644
 --- a/src/auth.ts
 +++ b/src/auth.ts
 @@ -10,6 +10,12 @@ export function login(req, res) {
++  // 示例：这里故意保留风险代码，方便演示 ReviewPilot 的证据链评审效果。
 +  const userId = req.body.userId;
 +  console.log("login user", userId);
 +  if (req.body.redirect) {
