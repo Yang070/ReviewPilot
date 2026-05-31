@@ -801,6 +801,7 @@ async function route() {
 }
 
 function showView(path) {
+  document.body.classList.toggle("auth-page", path === "/login" || path === "/register");
   Object.entries(views).forEach(([key, view]) => view.classList.toggle("hidden", key !== path));
 }
 

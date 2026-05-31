@@ -1668,6 +1668,22 @@ body {
   padding: 14px 16px 16px 236px;
 }
 
+body.auth-page .layout {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+body.auth-page .global-sidebar,
+body.auth-page .layout > .userbar {
+  display: none !important;
+}
+
+body.auth-page .auth-shell {
+  width: min(960px, 100%);
+  min-height: calc(100vh - 48px);
+}
+
 .global-sidebar {
   position: fixed;
   z-index: 20;
