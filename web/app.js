@@ -204,6 +204,9 @@ let activeInputTab = "url";
 let activeDiffFile = "";
 let expandedAnnotations = new Set();
 let expandedFileLevel = new Set();
+let expandedIssueCards = new Set();
+let ignoredIssueIds = new Set();
+let resolvedIssueIds = new Set();
 let selectedAnnotation = null;
 let hasReport = false;
 let isInputExpanded = true;
@@ -342,7 +345,42 @@ document.addEventListener("click", (event) => {
   const closeDrawer = event.target.closest("[data-close-drawer]");
   if (closeDrawer) {
     isDrawerOpen = false;
+    selectedAnnotation = null;
     updateWorkbenchShellState();
+  }
+  const toggleIssuesPanel = event.target.closest("[data-toggle-issues-panel]");
+  if (toggleIssuesPanel) {
+    isDrawerOpen = !isDrawerOpen;
+    if (!isDrawerOpen) selectedAnnotation = null;
+    updateWorkbenchShellState();
+    renderDiffReview(lastReport);
+  }
+  const issueDetailToggle = event.target.closest("[data-issue-detail]");
+  if (issueDetailToggle) {
+    const id = issueDetailToggle.dataset.issueDetail;
+    if (expandedIssueCards.has(id)) expandedIssueCards.delete(id);
+    else expandedIssueCards.add(id);
+    renderDiffReview(lastReport);
+  }
+  const issueStateToggle = event.target.closest("[data-issue-state]");
+  if (issueStateToggle) {
+    const id = issueStateToggle.dataset.issueState || "";
+    const state = issueStateToggle.dataset.issueStateValue || "";
+    if (state === "ignored") {
+      if (ignoredIssueIds.has(id)) ignoredIssueIds.delete(id);
+      else {
+        ignoredIssueIds.add(id);
+        resolvedIssueIds.delete(id);
+      }
+    }
+    if (state === "resolved") {
+      if (resolvedIssueIds.has(id)) resolvedIssueIds.delete(id);
+      else {
+        resolvedIssueIds.add(id);
+        ignoredIssueIds.delete(id);
+      }
+    }
+    renderDiffReview(lastReport);
   }
   const priorityFile = event.target.closest("[data-priority-file]");
   if (priorityFile) {
@@ -367,7 +405,10 @@ document.addEventListener("click", (event) => {
   }
   const openIssues = event.target.closest("[data-open-issues]");
   if (openIssues) {
-    renderIssuesDrawer();
+    isDrawerOpen = true;
+    selectedAnnotation = null;
+    updateWorkbenchShellState();
+    renderDiffReview(lastReport);
   }
   const missingReanalyze = event.target.closest("#missingDiffReanalyzeBtn");
   if (missingReanalyze) {
@@ -645,7 +686,7 @@ changedFilesNav.addEventListener("click", (event) => {
   const item = event.target.closest("[data-diff-file]");
   if (!item) return;
   activeDiffFile = item.dataset.diffFile;
-  setSidebarActive("changed_files");
+  setSidebarActive("code_review");
   renderDiffReview(lastReport);
 });
 linkedRiskList.addEventListener("click", (event) => {
@@ -1855,6 +1896,7 @@ function renderDiffReview(report, focusLine = 0) {
   }
   diffFileHeader.innerHTML = renderDiffFileHeader(current);
   diffViewer.innerHTML = renderDiffLines(current, showRuleMarkers.checked, showAuditNotes.checked);
+  if (isDrawerOpen) renderCodeReviewIssuePanel(current);
   if (focusLine) {
     const target = diffViewer.querySelector(`[data-new-line="${focusLine}"]`);
     if (target) {
@@ -1868,8 +1910,10 @@ function renderDiffReview(report, focusLine = 0) {
 function matchesCodeFileFilter(file, report) {
   const score = Number(file.change.risk_score || 0);
   const hasRisk = file.risks.length > 0;
+  const needsManual = file.risks.some(isManualRisk);
   if (codeFileFilter === "risk") return hasRisk;
   if (codeFileFilter === "high") return file.risks.some(item => item.risk_level === "high") || score >= 70;
+  if (codeFileFilter === "manual") return needsManual;
   if (codeFileFilter === "deep") return isDeepAnalyzed(file.change.filename ? file.change : file, report);
   if (codeFileFilter === "low") return isLowPriorityFile(file.filename) || score < 30 && !hasRisk;
   return true;
@@ -1905,10 +1949,22 @@ function renderMissingDiffState() {
 function sortDiffFiles(files) {
   const mode = fileSortMode.value;
   return [...files].sort((a, b) => {
+    const priority = fileReviewPriority(b) - fileReviewPriority(a);
+    if (priority) return priority;
     if (mode === "count") return b.risks.length - a.risks.length || b.change.risk_score - a.change.risk_score || a.index - b.index;
     if (mode === "order") return a.index - b.index;
     return Number(b.change.risk_score || 0) - Number(a.change.risk_score || 0) || b.risks.length - a.risks.length || a.index - b.index;
   });
+}
+
+function fileReviewPriority(file) {
+  const score = Number(file.change.risk_score || 0);
+  const highRisk = file.risks.some(item => item.risk_level === "high") || score >= 70;
+  const mediumRisk = file.risks.some(item => item.risk_level === "medium") || score >= 40;
+  const issueWeight = file.risks.length ? 100 : 0;
+  const manualWeight = file.risks.some(isManualRisk) ? 80 : 0;
+  const riskWeight = highRisk ? 300 : mediumRisk ? 200 : 60;
+  return riskWeight + issueWeight + manualWeight + Math.min(score, 99);
 }
 
 function renderGroupedFileNav(files) {
@@ -1982,9 +2038,19 @@ function renderChangedFileNavItem(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const pathParts = splitFilePath(file.filename);
-  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}" title="${escapeHtmlAttr(file.filename)}">
-    <span class="file-name">${escapeHtml(pathParts.name)}</span>
-    <span class="badge ${risk.className}">${risk.label}</span>
+  const issueCount = file.risks.length;
+  const manual = file.risks.some(isManualRisk);
+  const typeTags = Array.from(new Set(file.risks.map(issueTypeLabel))).slice(0, 2);
+  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""} ${risk.className}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}" title="${escapeHtmlAttr(file.filename)}">
+    <span class="file-nav-main">
+      <span class="badge ${risk.className}">${risk.label}</span>
+      <span class="file-name">${escapeHtml(pathParts.name)}</span>
+    </span>
+    <span class="file-nav-meta">
+      <small>${issueCount} 问题</small>
+      ${manual ? `<small class="manual-chip">需人工复核</small>` : ""}
+    </span>
+    ${typeTags.length ? `<span class="file-type-tags">${typeTags.map(type => `<small>${escapeHtml(type)}</small>`).join("")}</span>` : ""}
   </button>`;
 }
 
@@ -2017,22 +2083,28 @@ function renderDiffFileHeader(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const reasons = (file.change.risk_reasons || []).join("；") || "普通变更文件";
-  const issueCount = getReportRisks(lastReport).length;
+  const issueCount = file.risks.length;
   const buttons = fileAskSuggestions.map(question =>
     `<button class="copy-btn" type="button" data-file-ask-question="${escapeHtmlAttr(buildFileAskQuestion(question, file))}">${escapeHtml(question)}</button>`
   ).join("");
   return `<div>
     <div class="diff-title-row">
-      <div>
-        <h3>${escapeHtml(splitFilePath(file.filename).name)}</h3>
-        <p>${escapeHtml(splitFilePath(file.filename).dir || ".")} · ${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions}</p>
+      <div class="diff-file-summary">
+        <strong>${escapeHtml(splitFilePath(file.filename).name)}</strong>
+        <span title="${escapeHtmlAttr(file.filename)}">${escapeHtml(risk.label)} · +${file.additions} / -${file.deletions} · ${issueCount} 条 AI 问题 · ${escapeHtml(compactReason(file.change, reasons))}</span>
       </div>
-      <div class="segmented-control"><button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button><button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button>${issueCount ? `<button type="button" data-open-issues>AI 发现 ${issueCount} 个问题</button>` : ""}</div>
+      <div class="segmented-control diff-header-actions">
+        <button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button>
+        <button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button>
+        <details class="toolbar-popover"><summary>Ask PR 快捷问题 ▾</summary><div class="toolbar-popover-menu">${buttons}</div></details>
+        <details class="toolbar-popover"><summary>技术细节 ▾</summary><div class="toolbar-popover-menu tech-menu">
+          <p><strong>风险判定：</strong>${escapeHtml(reasons)}</p>
+          <p><strong>规则命中：</strong>${file.rules.length} 条</p>
+          <p><strong>结构化信息：</strong>risk_score ${score}；status ${escapeHtml(file.status || "modified")}；hunks ${Number(file.hunks || 0)}</p>
+        </div></details>
+        <button type="button" data-toggle-issues-panel>${isDrawerOpen ? "收起问题面板" : `AI 问题 ${issueCount}`}</button>
+      </div>
     </div>
-    <p class="diff-hint">${file.risks.length ? `这个文件有 ${file.risks.length} 条 AI 批注，点击代码行右侧的标记查看详情。` : "这个文件没有发现明确风险，仅显示代码变更。"}</p>
-    <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
-    <div class="inline-actions">${buttons}</div>
-    <details class="tech-details"><summary>查看技术细节</summary><p>${escapeHtml(reasons)}</p></details>
   </div>`;
 }
 
@@ -2316,6 +2388,85 @@ function renderIssuesDrawer() {
       <button class="copy-btn" type="button" data-close-drawer>关闭面板</button>
     </div>
   </section>`;
+}
+
+function renderCodeReviewIssuePanel(file) {
+  if (!riskDetailDrawer || !file) return;
+  const issues = file.risks || [];
+  const selectedId = selectedAnnotation?.file === file.filename ? selectedAnnotation.id : "";
+  if (selectedId && !expandedIssueCards.has(selectedId)) expandedIssueCards.add(selectedId);
+  if (!selectedId && issues[0]?.id && !Array.from(expandedIssueCards).some(id => issues.some(issue => issue.id === id))) {
+    expandedIssueCards.add(issues[0].id);
+  }
+  const manualCount = issues.filter(isManualRisk).length;
+  riskDetailDrawer.innerHTML = `<section class="review-issues-panel">
+    <div class="review-issues-head">
+      <div>
+        <strong>AI 发现 ${issues.length} 个问题</strong>
+        <small>${manualCount ? `${manualCount} 个需人工复核` : "当前文件暂无人工复核标记"}</small>
+      </div>
+      <button class="icon-button" type="button" data-toggle-issues-panel title="收起问题面板">×</button>
+    </div>
+    <div class="review-issue-list">
+      ${issues.length ? issues.map(item => renderReviewIssueCard(item, selectedId)).join("") : renderNoIssuePanel(file)}
+    </div>
+    <details class="review-panel-details">
+      <summary>技术细节 ▾</summary>
+      <p>规则命中：${file.rules.length} 条；文件风险分：${Number(file.change.risk_score || 0)}；深度分析：${isDeepAnalyzed(file.change.filename ? file.change : file, lastReport) ? "是" : "否"}</p>
+    </details>
+  </section>`;
+}
+
+function renderNoIssuePanel(file) {
+  const risk = riskScoreText(Number(file.change.risk_score || 0));
+  return `<article class="review-issue-empty">
+    <span class="badge ${risk.className}">${risk.label}</span>
+    <strong>当前文件暂无明确 AI 问题</strong>
+    <p>你仍然可以阅读 diff，或展开技术细节查看规则预检和风险评分。</p>
+  </article>`;
+}
+
+function renderReviewIssueCard(item, selectedId = "") {
+  const id = item.id || `${item.file}:${item.line_start || "file"}`;
+  const view = formatRiskForUser(item);
+  const expanded = expandedIssueCards.has(id) || selectedId === id;
+  const ignored = ignoredIssueIds.has(id);
+  const resolved = resolvedIssueIds.has(id);
+  const typeLabel = issueTypeLabel(item);
+  const manual = isManualRisk(item);
+  const comment = reviewCommentForIssue(item, view);
+  return `<article class="review-issue-card ${item.risk_level || "medium"} ${expanded ? "expanded" : ""} ${ignored ? "muted-file" : ""} ${resolved ? "resolved" : ""}">
+    <div class="review-issue-card-head">
+      <div class="review-issue-badges">
+        <span class="issue-type-chip">${escapeHtml(typeLabel)}</span>
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${manual ? `<span class="manual-chip">需人工复核</span>` : ""}
+        ${ignored ? `<span class="state-chip">已忽略</span>` : ""}
+        ${resolved ? `<span class="state-chip">已处理</span>` : ""}
+      </div>
+      <button class="copy-btn" type="button" data-issue-detail="${escapeHtmlAttr(id)}">${expanded ? "收起详情" : "展开详情"}</button>
+    </div>
+    <strong class="review-issue-title">${escapeHtml(view.issueText)}</strong>
+    <small class="review-issue-location">${escapeHtml(view.locationLabel)}</small>
+    <div class="review-issue-actions">
+      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(comment)}">复制 Review Comment</button>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(id)}">Ask PR 追问</button>
+      <button class="copy-btn" type="button" data-risk-jump="${escapeHtmlAttr(id)}" data-risk-id="${escapeHtmlAttr(id)}" data-risk-file="${escapeHtmlAttr(item.file || "")}" data-risk-line="${item.line_start || ""}">定位</button>
+      <button class="copy-btn weak-action" type="button" data-issue-state="${escapeHtmlAttr(id)}" data-issue-state-value="ignored">${ignored ? "取消忽略" : "忽略"}</button>
+      <button class="copy-btn weak-action" type="button" data-issue-state="${escapeHtmlAttr(id)}" data-issue-state-value="resolved">${resolved ? "取消处理" : "标记已处理"}</button>
+    </div>
+    ${expanded ? `<div class="review-issue-detail">
+      <div><strong>问题说明</strong><p>${escapeHtml(view.issueText)}</p></div>
+      <div><strong>为什么重要</strong><p>${escapeHtml(view.whyItMatters)}</p></div>
+      <div><strong>建议</strong><p>${escapeHtml(view.suggestionText)}</p></div>
+      <div><strong>证据</strong><pre>${escapeHtml(view.evidenceText)}</pre></div>
+      ${view.auditText ? `<div><strong>审计结论</strong><p>${escapeHtml(view.auditText)}</p></div>` : ""}
+    </div>` : ""}
+  </article>`;
+}
+
+function reviewCommentForIssue(item, view) {
+  return view.suggestionText || view.issueText || item.suggestion || "建议人工 Reviewer 结合当前 diff 复核。";
 }
 
 function renderIssueDrawerRow(item) {
@@ -2823,6 +2974,16 @@ function fileFocusText(file, fallback) {
   return points.join("；") + "。";
 }
 
+function compactReason(file, fallback) {
+  const score = Number(file.risk_score || file.priority || 0);
+  const reasons = Array.isArray(file.risk_reasons) ? file.risk_reasons : [];
+  if (reasons.some(item => String(item).includes("变更规模"))) return "结构性修改";
+  if (reasons.some(item => String(item).includes("关键路径"))) return "关键路径变更";
+  if (score >= 70) return "高优先级变更";
+  if (score >= 40) return "需要重点确认";
+  return String(fallback || "普通变更").split("；")[0] || "普通变更";
+}
+
 function rewriteReviewComment(comment) {
   if (!comment) return "";
   if (comment.includes("path=\"*\"") || comment.includes("NotFound") || comment.includes("兜底")) {
@@ -2903,6 +3064,11 @@ function setReportTab(tab) {
   document.querySelectorAll("[data-report-panel]").forEach(panel => {
     panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
   });
+  if (tab === "code") {
+    isDrawerOpen = true;
+    updateWorkbenchShellState();
+    renderDiffReview(lastReport);
+  }
   if (tab === "changed") renderChangedFilesPage(lastReport);
 }
 
@@ -3214,6 +3380,27 @@ function typeText(type) {
     follow_up: "后续建议",
   };
   return map[type] || "Review 建议";
+}
+
+function issueTypeLabel(item = {}) {
+  const text = `${item.type || ""} ${item.issue || ""} ${item.reason || ""} ${item.suggestion || ""} ${item.evidence || ""}`.toLowerCase();
+  if (/xss|csrf|token|secret|password|auth|permission|越权|权限|注入|泄露|innerhtml|user id|userid/.test(text)) return "安全风险";
+  if (/test|coverage|测试|覆盖/.test(text)) return "测试覆盖不足";
+  if (/null|undefined|exception|error|失败|崩溃|空指针|bug/.test(text)) return "潜在 Bug";
+  if (/boundary|边界|empty|空值|重复|幂等|callback/.test(text)) return "边界条件";
+  if (/performance|性能|循环|缓存|耗时/.test(text)) return "性能风险";
+  if (/style|format|lint|命名|格式/.test(text)) return "代码风格";
+  if (/maintain|refactor|复杂|可维护|耦合|重复/.test(text)) return "可维护性";
+  if (item.type === "confirmed_issue") return "潜在 Bug";
+  if (item.type === "needs_human_check") return "边界条件";
+  return "其他";
+}
+
+function isManualRisk(item = {}) {
+  return item.type === "needs_human_check"
+    || item.audit_status === "needs_human_check"
+    || item.audit_status === "downgraded"
+    || Number(item.final_confidence ?? item.confidence ?? 100) < 60;
 }
 
 function auditStatusText(status) {

@@ -3907,3 +3907,475 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* Code review workspace: compact PR-review reading path. */
+.report-pane[data-report-panel="code"] {
+  grid-template-rows: minmax(0, 1fr) !important;
+  padding: 0 !important;
+}
+
+.diff-review-shell {
+  grid-template-columns: 252px minmax(0, 1fr) 0 !important;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace.drawer-open .diff-review-shell {
+  grid-template-columns: 252px minmax(520px, 1fr) minmax(340px, 380px) !important;
+}
+
+.diff-sidebar {
+  width: 252px;
+  padding: 10px;
+  background: rgba(7, 17, 31, 0.92) !important;
+}
+
+.diff-toolbar {
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.diff-toolbar .field span {
+  font-size: 11px;
+}
+
+.filter-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.filter-chips button {
+  min-height: 30px;
+  border-radius: 7px;
+  padding: 0 8px;
+  color: var(--muted);
+}
+
+.filter-chips button.active {
+  border-color: rgba(124, 58, 237, 0.72);
+  background: rgba(124, 58, 237, 0.16);
+  color: #fff;
+}
+
+.changed-files-nav {
+  gap: 7px;
+}
+
+.file-group-title {
+  color: var(--weak);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.file-nav-item {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  height: auto;
+  min-height: 68px !important;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 8px;
+  background: rgba(15, 27, 45, 0.64);
+  padding: 9px 10px !important;
+}
+
+.file-nav-item.high {
+  border-left-color: var(--red);
+  background: rgba(15, 27, 45, 0.64);
+  color: var(--text);
+}
+
+.file-nav-item.medium {
+  border-left-color: var(--amber);
+  background: rgba(15, 27, 45, 0.64);
+  color: var(--text);
+}
+
+.file-nav-item.low {
+  border-left-color: #64748b;
+  background: rgba(15, 27, 45, 0.64);
+  color: var(--text);
+}
+
+.file-nav-item.active {
+  border-color: rgba(124, 58, 237, 0.66);
+  border-left-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.14);
+  box-shadow: none;
+}
+
+.file-nav-main,
+.file-nav-meta,
+.file-type-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.file-nav-main {
+  justify-content: flex-start;
+}
+
+.file-nav-main .badge {
+  flex: 0 0 auto;
+  max-width: 64px;
+}
+
+.file-nav-item .file-name {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-nav-meta small,
+.file-type-tags small,
+.manual-chip,
+.state-chip,
+.issue-type-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border: 1px solid rgba(100, 116, 139, 0.36);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.manual-chip {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #f59e0b;
+}
+
+.state-chip {
+  border-color: rgba(96, 165, 250, 0.38);
+  color: #93c5fd;
+}
+
+.diff-main {
+  background: rgba(7, 17, 31, 0.92);
+}
+
+.diff-file-header {
+  min-height: 52px;
+  padding: 8px 12px;
+}
+
+.diff-title-row {
+  align-items: center;
+}
+
+.diff-file-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.diff-file-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-file-summary span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toolbar-popover {
+  position: relative;
+}
+
+.toolbar-popover summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(15, 27, 45, 0.88);
+  color: var(--text);
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+
+.toolbar-popover summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-popover-menu {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  top: calc(100% + 8px);
+  display: grid;
+  gap: 6px;
+  width: min(300px, 80vw);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(11, 21, 36, 0.98);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.42);
+  padding: 10px;
+}
+
+.toolbar-popover-menu .copy-btn {
+  justify-content: flex-start;
+}
+
+.toolbar-popover-menu p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.split-diff-table {
+  min-width: 960px;
+}
+
+.split-diff-row {
+  grid-template-columns: 48px 26px minmax(220px, 1fr) 48px 26px minmax(220px, 1fr) 64px;
+}
+
+.annotation-marker {
+  min-width: 34px;
+  height: 22px;
+  padding: 0 7px;
+}
+
+.inline-comment {
+  padding: 10px 14px 10px 112px;
+}
+
+.risk-detail-drawer {
+  display: none;
+  min-width: 0;
+  max-width: none;
+  border-left: 1px solid var(--line);
+  background: rgba(7, 17, 31, 0.94);
+  padding: 0;
+}
+
+.workspace.drawer-open .risk-detail-drawer {
+  display: block;
+}
+
+.review-issues-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.review-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px;
+}
+
+.review-issues-head strong {
+  display: block;
+  color: var(--text);
+}
+
+.review-issues-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-issue-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.review-issue-card,
+.review-issue-empty {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(29, 43, 63, 0.9);
+  border-left: 3px solid rgba(100, 116, 139, 0.42);
+  border-radius: 10px;
+  background: rgba(15, 27, 45, 0.7);
+  padding: 12px;
+}
+
+.review-issue-card.high {
+  border-left-color: var(--red);
+  background: rgba(15, 27, 45, 0.7);
+  color: var(--text);
+}
+
+.review-issue-card.medium {
+  border-left-color: var(--amber);
+  background: rgba(15, 27, 45, 0.7);
+  color: var(--text);
+}
+
+.review-issue-card.low {
+  border-left-color: #64748b;
+  background: rgba(15, 27, 45, 0.7);
+  color: var(--text);
+}
+
+.review-issue-card.resolved {
+  border-left-color: var(--green);
+}
+
+.review-issue-card-head,
+.review-issue-badges,
+.review-issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.review-issue-card-head {
+  justify-content: space-between;
+}
+
+.issue-type-chip {
+  border-color: rgba(124, 58, 237, 0.46);
+  color: #c4b5fd;
+}
+
+.review-issue-title {
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.review-issue-location {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-issue-actions {
+  margin-top: 2px;
+}
+
+.weak-action {
+  color: var(--muted);
+}
+
+.review-issue-detail {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.review-issue-detail div {
+  display: grid;
+  gap: 4px;
+}
+
+.review-issue-detail p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.review-issue-detail pre {
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #050b14;
+  color: #cbd5e1;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.review-panel-details {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.review-panel-details summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.review-panel-details p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.review-issue-empty p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .workspace.drawer-open .diff-review-shell {
+    grid-template-columns: 220px minmax(420px, 1fr) minmax(300px, 340px) !important;
+  }
+
+  .diff-sidebar {
+    width: 220px;
+  }
+}
+
+@media (max-width: 900px) {
+  .diff-review-shell,
+  .workspace.drawer-open .diff-review-shell {
+    grid-template-columns: 1fr !important;
+  }
+
+  .diff-sidebar {
+    width: auto;
+  }
+
+  .risk-detail-drawer,
+  .workspace.drawer-open .risk-detail-drawer {
+    display: block;
+    min-height: 360px;
+  }
+
+  .diff-title-row,
+  .diff-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-popover-menu {
+    right: auto;
+    left: 0;
+  }
+}
