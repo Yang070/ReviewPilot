@@ -3744,7 +3744,7 @@ textarea {
 }
 
 .workspace.drawer-open .diff-review-shell {
-  grid-template-columns: 232px minmax(0, 1fr) 360px !important;
+  grid-template-columns: 232px minmax(0, 1fr) minmax(360px, 400px) !important;
 }
 
 .diff-sidebar {
@@ -3807,13 +3807,87 @@ textarea {
 
 .issues-drawer .drawer-scroll {
   padding-bottom: 16px;
+  overflow-x: hidden;
 }
 
 .issues-drawer .compact-issue-list {
   display: grid;
   gap: 8px;
-  max-height: min(60vh, 520px);
+  max-height: none;
+  overflow: visible;
+}
+
+.risk-detail-drawer {
+  width: 100%;
+  min-width: 360px;
+  max-width: 420px;
+  overflow: hidden !important;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.risk-detail-drawer .drawer-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.risk-detail-drawer .drawer-head,
+.risk-detail-drawer .drawer-actions {
+  flex-shrink: 0;
+}
+
+.risk-detail-drawer .drawer-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.risk-detail-drawer p,
+.risk-detail-drawer small,
+.risk-detail-drawer strong,
+.risk-detail-drawer h3 {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.risk-detail-drawer .drawer-evidence {
   overflow: auto;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
+}
+
+.drawer-issue-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(15, 27, 45, 0.78);
+  padding: 12px;
+  text-align: left;
+}
+
+.drawer-issue-card.high { box-shadow: inset 3px 0 0 var(--red); }
+.drawer-issue-card.medium { box-shadow: inset 3px 0 0 var(--amber); }
+.drawer-issue-card.low { box-shadow: inset 3px 0 0 var(--green); }
+
+.drawer-issue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.drawer-issue-card p,
+.drawer-issue-card small,
+.drawer-issue-card strong {
+  margin: 0;
+  min-width: 0;
+  white-space: normal;
+}
+
+.drawer-issue-card small {
+  color: var(--muted);
 }
 
 .file-ask-context .drawer-evidence {

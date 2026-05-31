@@ -316,7 +316,12 @@ document.addEventListener("click", (event) => {
   const askSuggestion = event.target.closest("[data-ask-suggestion]");
   if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
   const riskAsk = event.target.closest("[data-risk-ask]");
-  if (riskAsk) fillAskQuestion("review", "\u8bf7\u8fdb\u4e00\u6b65\u89e3\u91ca\u8fd9\u4e2a\u98ce\u9669\u4e3a\u4ec0\u4e48\u6210\u7acb\uff0c\u4ee5\u53ca\u5e94\u8be5\u5982\u4f55\u4fee\u6539\uff1f");
+  if (riskAsk) {
+    const annotation = findAskAnnotation(riskAsk.dataset.riskAsk);
+    const context = buildAnnotationAskContext(annotation);
+    goToAskPRWithQuestion(buildAnnotationAskQuestion(annotation), context);
+    return;
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -346,7 +351,7 @@ document.addEventListener("click", (event) => {
     setReportTab("code");
     renderDiffReview(lastReport);
   }
-  const riskJump = event.target.closest(".issue-row[data-risk-jump]");
+  const riskJump = event.target.closest("[data-risk-jump]");
   if (riskJump) jumpToRiskElement(riskJump);
   const fileToggle = event.target.closest("[data-file-level-toggle]");
   if (fileToggle) {
@@ -1678,6 +1683,54 @@ function buildCurrentFileAskContext() {
   };
 }
 
+function findAskAnnotation(id = "") {
+  if (selectedAnnotation && (!id || selectedAnnotation.id === id)) return selectedAnnotation;
+  if (!lastReport) return null;
+  const index = buildLineAnnotations(lastReport);
+  const candidates = [];
+  for (const fileItems of Object.values(index.byFile || {})) {
+    for (const lineItems of Object.values(fileItems || {})) candidates.push(...lineItems);
+  }
+  for (const fileItems of Object.values(index.fileLevel || {})) candidates.push(...fileItems);
+  const found = candidates.find(item => item.id === id);
+  if (found) return found;
+  return selectedAnnotation || candidates[0] || null;
+}
+
+function buildAnnotationAskQuestion(annotation) {
+  if (!annotation) {
+    return "请总结当前文件最需要人工复核的风险点，并说明依据。";
+  }
+  const fileName = splitFilePath(annotation.file || activeDiffFile || "").name;
+  if (fileName) {
+    return `请解释 ${fileName} 中这条风险为什么成立？请结合代码证据、规则预检和审计结论说明是否需要人工复核。`;
+  }
+  return "请解释当前代码批注为什么成立，并结合文件、代码证据、规则预检和审计结论说明是否需要人工复核。";
+}
+
+function buildAnnotationAskContext(annotation) {
+  if (!annotation) return buildCurrentFileAskContext();
+  const fileContext = buildCurrentFileAskContextForFile(annotation.file || activeDiffFile);
+  return {
+    ...fileContext,
+    issueTitle: annotation.title || annotation.summary || "当前代码批注",
+    issueSummary: annotation.summary || "",
+    suggestion: annotation.suggestion || "",
+    evidence: annotation.evidence || "",
+    auditStatus: annotation.audit_status || "",
+    confidence: annotation.confidence,
+    riskLabel: annotation.kind === "rule" ? "规则预检" : riskLevelText(annotation.level),
+  };
+}
+
+function buildCurrentFileAskContextForFile(filename = activeDiffFile) {
+  const previous = activeDiffFile;
+  activeDiffFile = filename || previous;
+  const context = buildCurrentFileAskContext();
+  activeDiffFile = previous;
+  return context;
+}
+
 function goToAskPRWithQuestion(question, context) {
   if (!question) return;
   navigate("/review");
@@ -1697,9 +1750,14 @@ function renderFileAskContext(context) {
     <p><strong>文件</strong>${escapeHtml(context.name)}</p>
     <p><strong>路径</strong>${escapeHtml(context.dir)}</p>
     <p><strong>状态</strong>${escapeHtml(context.status)} · ${escapeHtml(context.riskLabel)} · +${context.additions} / -${context.deletions}</p>
+    ${context.issueTitle ? `<p><strong>当前问题</strong>${escapeHtml(context.issueTitle)}</p>` : ""}
+    ${context.issueSummary ? `<p><strong>问题说明</strong>${escapeHtml(context.issueSummary)}</p>` : ""}
+    ${context.suggestion ? `<p><strong>建议</strong>${escapeHtml(context.suggestion)}</p>` : ""}
+    ${context.auditStatus ? `<p><strong>审计状态</strong>${escapeHtml(auditStatusText(context.auditStatus))}</p>` : ""}
+    ${context.confidence !== undefined ? `<p><strong>置信度</strong>${escapeHtml(confidenceLabel(context.confidence))}</p>` : ""}
     <p><strong>相关风险</strong>${escapeHtml(riskTitles.length ? riskTitles.join("；") : "当前文件没有明确风险")}</p>
     <p><strong>规则预检</strong>${escapeHtml(ruleTitles.length ? ruleTitles.join("；") : "当前文件没有命中规则预检")}</p>
-    ${context.diffSummary ? `<pre class="drawer-evidence">${escapeHtml(context.diffSummary)}</pre>` : ""}
+    ${context.evidence ? `<pre class="drawer-evidence">${escapeHtml(context.evidence)}</pre>` : context.diffSummary ? `<pre class="drawer-evidence">${escapeHtml(context.diffSummary)}</pre>` : ""}
   </div>`;
 }
 
@@ -2251,10 +2309,32 @@ function renderIssuesDrawer() {
       <h3>AI 发现的问题</h3>
       <p class="muted">点击问题后会定位到对应文件和代码行；如果暂时没有行号，会打开文件级提示。</p>
       <div class="issue-list compact-issue-list">
-        ${risks.length ? risks.map(renderIssueRow).join("") : empty("当前没有发现明确风险。")}
+        ${risks.length ? risks.map(renderIssueDrawerRow).join("") : empty("当前没有发现明确风险。")}
       </div>
     </div>
+    <div class="drawer-actions">
+      <button class="copy-btn" type="button" data-close-drawer>关闭面板</button>
+    </div>
   </section>`;
+}
+
+function renderIssueDrawerRow(item) {
+  const view = formatRiskForUser(item);
+  const location = item.line_start ? `${item.file}:${item.line_start}` : (item.file || "文件级提示");
+  const annotationId = item.id || item.file || "";
+  return `<article class="drawer-issue-card ${item.risk_level || "medium"}">
+    <div class="drawer-issue-head">
+      <span class="badge ${item.risk_level || "medium"}">${riskLevelText(item.risk_level)}</span>
+      <span class="issue-status">${escapeHtml(typeText(item.type))}</span>
+    </div>
+    <strong>${escapeHtml(view.issueText)}</strong>
+    <small title="${escapeHtmlAttr(location)}">${escapeHtml(location)}</small>
+    <p>${escapeHtml(view.whyItMatters)}</p>
+    <div class="inline-actions">
+      <button class="copy-btn" type="button" data-risk-jump="${escapeHtmlAttr(item.id || "")}" data-risk-id="${escapeHtmlAttr(item.id || "")}" data-risk-file="${escapeHtmlAttr(item.file || "")}" data-risk-line="${item.line_start || ""}">定位代码</button>
+      <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(annotationId)}">追问</button>
+    </div>
+  </article>`;
 }
 
 function renderFileLevelAnnotations(file, showAudit, showRules) {
