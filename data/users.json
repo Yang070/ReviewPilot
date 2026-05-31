@@ -1,0 +1,298 @@
+﻿{
+    "asd":  {
+                "username":  "asd",
+                "passwordSalt":  "j3+qhY37ovBdY0bymHyd2w==",
+                "passwordHash":  "JY/UpbgfNMn6aBLh5KtqGRgxiH9aqfK3hmu2TfGOp28=",
+                "createdAt":  1780053687,
+                "updatedAt":  1780240520,
+                "modelConfigs":  [
+                                     {
+                                         "id":  "BBF-ijgQ08hfAg",
+                                         "provider":  "Qwen",
+                                         "baseUrl":  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                                         "apiKey":  {
+                                                        "nonce":  "6OwFv+37EZJjpdLPZmKMUQ==",
+                                                        "cipher":  "HEjozZKlPwlIFeE+FnBBt7bG9Ygf8K+XiuFAAlpKy5baTo0="
+                                                    },
+                                         "apiKeyMask":  "sk-8...f189",
+                                         "modelName":  "glm-5",
+                                         "isDefault":  false,
+                                         "createdAt":  1780107151,
+                                         "updatedAt":  1780107151
+                                     },
+                                     {
+                                         "id":  "WneVLOJT67kqdg",
+                                         "provider":  "Qwen",
+                                         "baseUrl":  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                                         "apiKey":  {
+                                                        "nonce":  "W2FcjXpi6WMjkZUnQZaWLQ==",
+                                                        "cipher":  "xzOnwZYsbXQc7VwxQB3MRBtxnevWYLehC9lsBx5Q2YHUSZw="
+                                                    },
+                                         "apiKeyMask":  "sk-8...f189",
+                                         "modelName":  "qwen-plus-2025-07-14",
+                                         "isDefault":  false,
+                                         "createdAt":  1780208407,
+                                         "updatedAt":  1780208510
+                                     },
+                                     {
+                                         "id":  "C5a4AbftbIZ4pw",
+                                         "provider":  "Qwen",
+                                         "baseUrl":  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                                         "apiKey":  {
+                                                        "nonce":  "A3J7Cci97ae7XXcFoSuWXQ==",
+                                                        "cipher":  "Shj7c+yRUgFDX2KFCPY1xih6JUB49h5tkGSc8dUpyTtjxxc="
+                                                    },
+                                         "apiKeyMask":  "sk-8...f189",
+                                         "modelName":  "qwen3.6-35b-a3b",
+                                         "isDefault":  false,
+                                         "createdAt":  1780208969,
+                                         "updatedAt":  1780208969
+                                     },
+                                     {
+                                         "id":  "jFrgNeOi8yMrIA",
+                                         "provider":  "Qwen",
+                                         "baseUrl":  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                                         "apiKey":  {
+                                                        "nonce":  "f+ZCBusYVvy8riQcDd0yfA==",
+                                                        "cipher":  "hRxXeMFrG/+2oIEsRRURzXClG8ZQXZA2j0LyPRNheK66ts0="
+                                                    },
+                                         "apiKeyMask":  "sk-8...f189",
+                                         "modelName":  "qwen3.6-plus",
+                                         "isDefault":  true,
+                                         "createdAt":  1780231875,
+                                         "updatedAt":  1780231875
+                                     },
+                                     {
+                                         "id":  "6oZFGrEx4_X68w",
+                                         "provider":  "Qwen",
+                                         "baseUrl":  "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                                         "apiKey":  {
+                                                        "nonce":  "rxcRZVR8Txej0HAiEGutdA==",
+                                                        "cipher":  "RhhB1cLzbhxPsPztCueVs9XMaT+5GVszjEG5sTF+fs4Zi1w="
+                                                    },
+                                         "apiKeyMask":  "sk-8...f189",
+                                         "modelName":  "qwen-long",
+                                         "isDefault":  false,
+                                         "createdAt":  1780232313,
+                                         "updatedAt":  1780232313
+                                     }
+                                 ],
+                "history":  [
+
+                            ],
+                "email":  "",
+                "reviewRules":  [
+                                    {
+                                        "name":  "React Router 兜底路由检查",
+                                        "description":  "新增路由时提醒确认是否存在 NotFound 或 path=\"*\" 兜底路由。",
+                                        "category":  "frontend",
+                                        "language":  "javascript/typescript",
+                                        "file_patterns":  [
+                                                              "*.tsx",
+                                                              "*.jsx",
+                                                              "*.ts",
+                                                              "*.js"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "\u003cRoute",
+                                                                 "createBrowserRouter",
+                                                                 "path:"
+                                                             ],
+                                        "exclude_keywords":  [
+                                                                 "path=\"*\"",
+                                                                 "path: \"*\"",
+                                                                 "NotFound",
+                                                                 "Fallback"
+                                                             ],
+                                        "severity":  "medium",
+                                        "message":  "新增路由代码，但新增片段中没有看到兜底路由。",
+                                        "suggestion":  "请确认路由表中是否已有 path=\"*\"、NotFound 或等价兜底页面。",
+                                        "enabled":  true,
+                                        "id":  "OhF1OUL8c4Y"
+                                    },
+                                    {
+                                        "name":  "异步错误处理检查",
+                                        "description":  "新增 async/await 或网络请求时提醒确认错误处理。",
+                                        "category":  "common",
+                                        "language":  "javascript/typescript",
+                                        "file_patterns":  [
+                                                              "*.ts",
+                                                              "*.tsx",
+                                                              "*.js",
+                                                              "*.jsx"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "async ",
+                                                                 "await ",
+                                                                 "fetch(",
+                                                                 "axios."
+                                                             ],
+                                        "exclude_keywords":  [
+                                                                 "try",
+                                                                 "catch",
+                                                                 ".catch("
+                                                             ],
+                                        "severity":  "medium",
+                                        "message":  "新增异步逻辑，但新增片段中没有看到错误处理。",
+                                        "suggestion":  "请补充 try/catch、.catch()，或说明上层调用链已经统一处理异常。",
+                                        "enabled":  true,
+                                        "id":  "rgOm8e8hesw"
+                                    },
+                                    {
+                                        "name":  "Context Provider 检查",
+                                        "description":  "新增 Context/Provider 时提醒确认入口组件包裹关系。",
+                                        "category":  "frontend",
+                                        "language":  "javascript/typescript",
+                                        "file_patterns":  [
+                                                              "*.tsx",
+                                                              "*.jsx",
+                                                              "*.ts",
+                                                              "*.js"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "createContext",
+                                                                 "Context.Provider",
+                                                                 "Provider\u003e"
+                                                             ],
+                                        "exclude_keywords":  [
+
+                                                             ],
+                                        "severity":  "low",
+                                        "message":  "新增 Context/Provider，需要确认是否正确包裹入口组件。",
+                                        "suggestion":  "请确认 App、Layout 或 Router 入口已正确包裹 Provider，并补充必要测试。",
+                                        "enabled":  true,
+                                        "id":  "pjQRS0AcSH4"
+                                    },
+                                    {
+                                        "name":  "删除或重命名文件引用检查",
+                                        "description":  "删除或重命名文件时提醒确认 import、路由和测试引用是否同步。",
+                                        "category":  "common",
+                                        "language":  "common",
+                                        "file_patterns":  [
+                                                              "*"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "__file_deleted_or_renamed__"
+                                                             ],
+                                        "exclude_keywords":  [
+
+                                                             ],
+                                        "severity":  "medium",
+                                        "message":  "文件被删除或重命名，需要确认引用是否同步更新。",
+                                        "suggestion":  "请确认 import、路由配置、构建入口和测试引用已同步调整。",
+                                        "enabled":  true,
+                                        "id":  "SJbAV7dYkEo"
+                                    },
+                                    {
+                                        "name":  "package.json 与 lock 文件同步检查",
+                                        "description":  "依赖声明变化时提醒确认 lock 文件是否同步提交。",
+                                        "category":  "common",
+                                        "language":  "common",
+                                        "file_patterns":  [
+                                                              "package.json"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "__package_lock_sync__"
+                                                             ],
+                                        "exclude_keywords":  [
+
+                                                             ],
+                                        "severity":  "medium",
+                                        "message":  "package.json 依赖发生变化，但没有看到 lock 文件同步变更。",
+                                        "suggestion":  "请提交对应 lock 文件，或在 PR 描述中说明项目不提交 lock 文件。",
+                                        "enabled":  true,
+                                        "id":  "-5AzOoipnTw"
+                                    },
+                                    {
+                                        "name":  "表单校验检查",
+                                        "description":  "新增表单提交逻辑时提醒确认必填项和输入校验。",
+                                        "category":  "frontend",
+                                        "language":  "javascript/typescript",
+                                        "file_patterns":  [
+                                                              "*.tsx",
+                                                              "*.jsx",
+                                                              "*.ts",
+                                                              "*.js"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "onSubmit",
+                                                                 "submit",
+                                                                 "FormData",
+                                                                 "input"
+                                                             ],
+                                        "exclude_keywords":  [
+                                                                 "required",
+                                                                 "validate",
+                                                                 "schema",
+                                                                 "zod",
+                                                                 "yup"
+                                                             ],
+                                        "severity":  "medium",
+                                        "message":  "新增表单相关逻辑，但新增片段中没有看到明显校验。",
+                                        "suggestion":  "请确认必填项、格式校验和错误提示是否完整。",
+                                        "enabled":  true,
+                                        "id":  "FY5kq_Mp7KY"
+                                    },
+                                    {
+                                        "name":  "后端接口权限检查",
+                                        "description":  "新增接口或 Controller 时提醒确认鉴权和权限校验。",
+                                        "category":  "backend",
+                                        "language":  "common",
+                                        "file_patterns":  [
+                                                              "*.py",
+                                                              "*.java",
+                                                              "*.ts",
+                                                              "*.js"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "router.",
+                                                                 "@Get",
+                                                                 "@Post",
+                                                                 "app.post",
+                                                                 "app.get",
+                                                                 "Controller"
+                                                             ],
+                                        "exclude_keywords":  [
+                                                                 "auth",
+                                                                 "permission",
+                                                                 "authorize",
+                                                                 "login_required",
+                                                                 "RequireAuth"
+                                                             ],
+                                        "severity":  "high",
+                                        "message":  "新增后端接口，但新增片段中没有看到明显鉴权或权限校验。",
+                                        "suggestion":  "请确认接口是否需要登录态、角色权限或资源归属校验。",
+                                        "enabled":  true,
+                                        "id":  "Y87yNa3rgFM"
+                                    },
+                                    {
+                                        "name":  "环境变量泄露检查",
+                                        "description":  "新增密钥、token、password 等字段时提醒确认是否泄露敏感信息。",
+                                        "category":  "common",
+                                        "language":  "common",
+                                        "file_patterns":  [
+                                                              "*"
+                                                          ],
+                                        "include_keywords":  [
+                                                                 "api_key",
+                                                                 "apikey",
+                                                                 "secret",
+                                                                 "password",
+                                                                 "token=",
+                                                                 "AKIA"
+                                                             ],
+                                        "exclude_keywords":  [
+                                                                 "placeholder",
+                                                                 "example",
+                                                                 "mock",
+                                                                 "test"
+                                                             ],
+                                        "severity":  "high",
+                                        "message":  "新增内容疑似包含密钥、Token 或敏感配置。",
+                                        "suggestion":  "请确认没有提交真实密钥；如为示例，请使用明显占位符并写入文档说明。",
+                                        "enabled":  true,
+                                        "id":  "fGKHD0EQAi4"
+                                    }
+                                ]
+            }
+}
