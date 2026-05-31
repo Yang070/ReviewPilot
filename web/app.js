@@ -2908,11 +2908,14 @@ function createApiError(message, meta = {}) {
 
 function startProgress(title, text) {
   const mode = analysisMode.value;
+  const isDeep = mode === "deep-audit" || mode === "deep_audit";
   reportContent.classList.remove("hidden");
   emptyReport.classList.add("hidden");
   if (progressModalTitle) progressModalTitle.textContent = "正在分析 PR";
   progressModal.classList.remove("hidden");
-  progressModalText.textContent = text || "当前阶段：准备分析";
+  progressModalText.textContent = isDeep
+    ? "深度审计会连续调用 Reviewer 和 Auditor 两个模型，耗时会比快速分析更长，请稍等。"
+    : (text || "当前阶段：准备分析");
   clearInterval(progressTimer);
   progressStepIndex = 0;
   progressState = null;
@@ -2923,7 +2926,7 @@ function startProgress(title, text) {
     if (!next) return;
     progressStepIndex += 1;
     updateProgressSafely(next.progress, next.stage);
-  }, 1200);
+  }, isDeep ? 2200 : 1200);
 }
 
 function progressStepsForMode(mode) {
