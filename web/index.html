@@ -17,9 +17,9 @@
           </span>
         </button>
         <nav class="side-nav" id="globalNav">
-          <button class="active" data-sidebar-key="code_review" data-report-target="code" data-icon="code" type="button">代码评审</button>
-          <button data-sidebar-key="overview" data-report-target="overview" data-icon="layout" type="button">概览</button>
-          <button data-sidebar-key="summary" data-report-target="overview" data-icon="file-text" type="button">摘要</button>
+          <button class="active" data-sidebar-key="result_visualization" data-report-target="result" data-icon="layout" type="button">评估结果</button>
+          <button data-sidebar-key="code_review" data-report-target="code" data-icon="code" type="button">代码评审</button>
+          <button data-sidebar-key="overview" data-report-target="overview" data-icon="file-text" type="button">概览</button>
           <button data-sidebar-key="audit" data-report-target="audit" data-icon="shield" type="button">审计</button>
           <button data-sidebar-key="ask" data-report-target="ask" data-icon="message" type="button">AI 问答</button>
           <button data-sidebar-key="changed_files" data-report-target="changed" data-icon="files" type="button">变更文件</button>
@@ -248,7 +248,7 @@
                 <strong id="toolbarModeLabel">快速分析</strong>
               </div>
               <div class="toolbar-actions">
-                <button id="reanalyzeBtn" type="button">重新分析</button>
+                <button id="reanalyzeBtn" type="button">更换 PR / 新建评审</button>
                 <button id="copySummaryBtn" type="button">复制摘要</button>
                 <button id="exportMarkdownBtn" type="button">导出报告</button>
               </div>
@@ -271,22 +271,31 @@
             </div>
 
             <div class="report-tabs" id="reportTabs">
-              <button class="active" data-report-tab="code" type="button">代码评审</button>
-              <button data-report-tab="overview" type="button">摘要</button>
+              <button class="active" data-report-tab="result" type="button">评估结果</button>
+              <button data-report-tab="code" type="button">代码评审</button>
+              <button data-report-tab="overview" type="button">概览</button>
               <button data-report-tab="changed" type="button">变更文件</button>
               <button data-report-tab="audit" type="button">审计</button>
               <button data-report-tab="ask" type="button">问答</button>
             </div>
 
-            <div class="report-pane" data-report-panel="code">
+            <div class="report-pane" data-report-panel="result">
               <section id="metricsDashboard" class="metrics-dashboard"></section>
               <details class="top-priority-section" id="topPrioritySection" open>
                 <summary>
-                  <span>优先查看 TOP 3</span>
-                  <button class="ghost-button" data-sidebar-key="audit" data-report-target="audit" type="button">查看审计</button>
+                  <span>建议优先查看</span>
+                  <button class="ghost-button" data-sidebar-key="code_review" data-report-target="code" type="button">进入代码评审</button>
                 </summary>
                 <div id="topPriorityList" class="top-priority-list"></div>
               </details>
+              <div class="result-visual-grid">
+                <section class="result-section overview-radar-section"><h3>质量雷达图</h3><div id="overviewRadarBox"></div></section>
+                <section class="result-section"><h3>主要更改</h3><div id="modules" class="stack"></div></section>
+                <section class="result-section"><h3>风险概览</h3><div id="riskOverviewBox" class="stack"></div></section>
+              </div>
+            </div>
+
+            <div class="report-pane hidden" data-report-panel="code">
               <section class="diff-review-shell">
                 <aside class="diff-sidebar">
                   <div class="diff-toolbar">
@@ -343,11 +352,9 @@
             <div class="report-pane hidden" data-report-panel="overview">
               <div class="summary-layout">
                 <section class="result-section"><h3>PR 概览</h3><div id="overviewBox" class="stack"></div></section>
-                <section class="result-section overview-radar-section"><h3>质量雷达</h3><div id="overviewRadarBox"></div></section>
-                <section class="result-section"><h3>主要变更</h3><div id="modules" class="stack"></div></section>
+                <section class="result-section"><h3>上下文覆盖</h3><div id="coverageBox" class="stack"></div></section>
                 <section class="result-section"><h3>文件统计</h3><div id="files" class="stack"></div></section>
-                <details class="result-section subtle-section"><summary>更多摘要信息</summary>
-                  <div id="coverageBox" class="stack"></div>
+                <details class="result-section subtle-section"><summary>详细摘要</summary>
                   <div id="priorityFiles" class="stack"></div>
                   <div id="comments" class="stack"></div>
                   <div id="limitations" class="stack"></div>
