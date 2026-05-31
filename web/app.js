@@ -126,6 +126,9 @@ const sideModelName = document.querySelector("#sideModelName");
 const sideAnalysisMode = document.querySelector("#sideAnalysisMode");
 
 const modelForm = document.querySelector("#modelForm");
+const modelConfigDialog = document.querySelector("#modelConfigDialog");
+const addModelConfigBtn = document.querySelector("#addModelConfigBtn");
+const closeModelDialogBtn = document.querySelector("#closeModelDialogBtn");
 const modelFormTitle = document.querySelector("#modelFormTitle");
 const editingConfigId = document.querySelector("#editingConfigId");
 const modelProvider = document.querySelector("#modelProvider");
@@ -492,6 +495,7 @@ modelForm.addEventListener("submit", async (event) => {
     }
     resetModelForm();
     await loadModelConfigs();
+    closeModelConfigDialog();
     showNotice("保存成功", "模型配置已更新。");
   } catch (err) {
     showError(err);
@@ -510,6 +514,11 @@ testModelBtn.addEventListener("click", async () => {
 });
 
 resetModelFormBtn.addEventListener("click", resetModelForm);
+addModelConfigBtn?.addEventListener("click", () => {
+  resetModelForm();
+  openModelConfigDialog();
+});
+closeModelDialogBtn?.addEventListener("click", closeModelConfigDialog);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
 reanalyzeBtn.addEventListener("click", () => {
@@ -842,7 +851,7 @@ function renderWorkbenchStatus() {
     || modelConfigs[0];
   if (!selected) {
     currentModelName.textContent = "未配置";
-    currentModelMeta.textContent = "请在下方输入 API Key 和模型名称，或进入完整模型设置。";
+    currentModelMeta.textContent = "请先在左侧模型设置中添加 API Key 和模型名称。";
     currentApiMask.textContent = "未保存";
     currentProviderName.textContent = "未配置";
     currentBaseUrl.textContent = "添加配置后会显示 Provider 和接口地址。";
@@ -871,10 +880,14 @@ function renderAuditModeControls() {
 function renderModelConfigList() {
   if (!modelConfigList) return;
   if (!modelConfigs.length) {
-    modelConfigList.innerHTML = empty("暂无模型配置。添加后才能开始 Review。");
+    modelConfigList.innerHTML = `<div class="empty model-empty">
+      <strong>暂无模型配置</strong>
+      <p>添加 Reviewer / Auditor 可用模型后，才能开始 PR Review。</p>
+      <button class="primary" type="button" data-add-model-empty>新增模型配置</button>
+    </div>`;
     return;
   }
-  modelConfigList.innerHTML = modelConfigs.map(item => `<article class="card">
+  modelConfigList.innerHTML = modelConfigs.map(item => `<article class="card model-config-card">
     <div class="card-title">
       <span>${escapeHtml(item.display_name)}</span>
       <span class="badge ${item.is_default ? "low" : "medium"}">${item.is_default ? "默认" : "可用"}</span>
@@ -891,6 +904,11 @@ function renderModelConfigList() {
 }
 
 modelConfigList.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-add-model-empty]")) {
+    resetModelForm();
+    openModelConfigDialog();
+    return;
+  }
   const editId = event.target.closest("[data-edit-model]")?.dataset.editModel;
   const defaultId = event.target.closest("[data-default-model]")?.dataset.defaultModel;
   const deleteId = event.target.closest("[data-delete-model]")?.dataset.deleteModel;
@@ -919,6 +937,7 @@ function editModelConfig(id) {
   modelApiKey.value = "";
   modelName.value = item.model_name;
   modelDefault.checked = item.is_default;
+  openModelConfigDialog();
 }
 
 function resetModelForm() {
@@ -929,6 +948,24 @@ function resetModelForm() {
   modelApiKey.value = "";
   modelName.value = "qwen-plus";
   modelDefault.checked = modelConfigs.length === 0;
+}
+
+function openModelConfigDialog() {
+  if (!modelConfigDialog) return;
+  if (typeof modelConfigDialog.showModal === "function") {
+    modelConfigDialog.showModal();
+  } else {
+    modelConfigDialog.classList.remove("hidden");
+  }
+}
+
+function closeModelConfigDialog() {
+  if (!modelConfigDialog) return;
+  if (typeof modelConfigDialog.close === "function" && modelConfigDialog.open) {
+    modelConfigDialog.close();
+  } else {
+    modelConfigDialog.classList.add("hidden");
+  }
 }
 
 function readModelForm() {
@@ -2154,11 +2191,19 @@ function renderPriorityFile(file) {
 
 function renderRuleFinding(item) {
   const view = formatRuleFindingForUser(item);
-  return `<div class="compact-row rule-finding-row">
-    <span class="table-main">${escapeHtml(view.title)}</span>
-    <span>${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.statusLabel)}</span></span>
-    <span>${escapeHtml(view.findingText)}</span>
+  return `<div class="audit-card rule-finding-row">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.title)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || item.severity || "medium")}
+        ${auditStatusBadge(item.status)}
+      </div>
+    </div>
+    <p class="audit-desc">${escapeHtml(view.findingText)}</p>
+    <p class="audit-suggestion">${escapeHtml(view.suggestionText)}</p>
   </div>`;
 }
 
@@ -2171,8 +2216,7 @@ function renderRuleFindingGroup(items) {
     <span>已采纳 ${accepted} 条</span>
     <span>需人工确认 ${manual} 条</span>
   </div>
-  <div class="compact-list">
-    <div class="compact-row compact-head"><span>规则名称</span><span>位置</span><span>状态</span><span>说明</span></div>
+  <div class="audit-card-list">
     ${items.map(renderRuleFinding).join("")}
   </div>`;
 }
@@ -2206,11 +2250,17 @@ function renderAuditReport(data) {
 }
 
 function renderReviewerRisk(item) {
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(item.file || "未知文件")}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${riskLevelText(item.risk_level)}</span></span>
-    <span>${confidenceLabel(item.reviewer_confidence ?? item.confidence)}</span>
-    <span>${escapeHtml(item.issue || "未说明问题")}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(item.issue || "未说明问题")}</strong>
+        <span title="${escapeHtmlAttr(item.file || "未知文件")}">${escapeHtml(item.file || "未知文件")}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.reviewer_confidence ?? item.confidence))}</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2243,24 +2293,42 @@ function renderAuditorResult(auditor) {
 }
 
 function renderAuditRows(items, mapper) {
-  return `<div class="compact-list">${items.map(item => {
+  return `<div class="audit-card-list">${items.map(item => {
     const [main, state, confidence, detail] = mapper(item);
-    return `<div class="compact-row audit-row">
-      <span class="table-main">${escapeHtml(main)}</span>
-      <span><span class="badge info">${escapeHtml(state)}</span></span>
-      <span>${escapeHtml(confidence)}</span>
-      <span>${escapeHtml(detail)}</span>
+    const stateText = String(state || "");
+    const stateBadge = ["high", "medium", "low"].includes(String(item.risk_level || "").toLowerCase())
+      ? riskLevelBadge(item.risk_level)
+      : stateText.includes("->")
+        ? `<span class="badge audit-downgraded">${escapeHtml(stateText)}</span>`
+        : auditActionBadge(item.audit_action || stateText);
+    return `<div class="audit-card audit-row">
+      <div class="audit-card-head">
+        <div class="audit-title-block">
+          <strong title="${escapeHtmlAttr(main)}">${escapeHtml(main)}</strong>
+          <span>${escapeHtml(confidence || "未返回置信度")}</span>
+        </div>
+        <div class="audit-badges">${stateBadge}</div>
+      </div>
+      <p class="audit-desc">${escapeHtml(detail)}</p>
     </div>`;
   }).join("")}</div>`;
 }
 
 function renderFinalRisk(item) {
   const view = formatRiskForUser(item);
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
-    <span>${confidenceLabel(item.final_confidence)}</span>
-    <span>${escapeHtml(view.issueText)}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.issueText)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${auditStatusBadge(item.audit_status || item.type)}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.final_confidence))}</span>
+      </div>
+    </div>
+    <p class="audit-desc">${escapeHtml(view.whyItMatters)}</p>
   </div>`;
 }
 
@@ -2276,11 +2344,18 @@ function renderModule(item) {
 
 function renderRisk(item) {
   const view = formatRiskForUser(item);
-  return `<div class="compact-row">
-    <span class="table-main">${escapeHtml(view.locationLabel)}</span>
-    <span><span class="badge ${item.risk_level || "medium"}">${escapeHtml(view.title)}</span></span>
-    <span>${confidenceLabel(item.confidence)}</span>
-    <span>${escapeHtml(view.issueText)}</span>
+  return `<div class="audit-card">
+    <div class="audit-card-head">
+      <div class="audit-title-block">
+        <strong>${escapeHtml(view.issueText)}</strong>
+        <span title="${escapeHtmlAttr(view.locationLabel)}">${escapeHtml(view.locationLabel)}</span>
+      </div>
+      <div class="audit-badges">
+        ${riskLevelBadge(item.risk_level || "medium")}
+        ${auditStatusBadge(item.audit_status || item.type)}
+        <span class="badge audit-unknown">${escapeHtml(confidenceLabel(item.confidence))}</span>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -2743,6 +2818,59 @@ function typeText(type) {
 }
 
 function auditStatusText(status) {
+  return getAuditStatusMeta(status).label;
+}
+
+function getAuditStatusMeta(status) {
+  const raw = String(status || "").trim();
+  const normalized = raw.toLowerCase();
+  const accepted = ["accepted", "adopted", "risk", "keep", "已采纳为风险", "审计通过", "保留"];
+  const pending = ["pending_ai_review", "pending", "待 ai 判断", "待AI判断", "等待 AI 判断"];
+  const manual = ["needs_human_check", "manual", "待确认", "需要人工确认", "需要人工复核", "已降级为待确认"];
+  const ignored = ["ignored", "skipped", "已忽略"];
+  const downgraded = ["downgraded", "downgrade", "降级", "已降级"];
+  const removed = ["false_positive", "removed", "remove", "疑似误报", "已移除", "已作为疑似误报移除"];
+  if (accepted.includes(raw) || accepted.includes(normalized)) {
+    return {label: "已采纳为风险", className: "audit-accepted", description: "该项已被系统采纳为有效风险。"};
+  }
+  if (pending.includes(raw) || pending.includes(normalized)) {
+    return {label: "等待 AI 判断", className: "audit-unknown", description: "规则预检已命中，等待 AI 结合 diff 判断。"};
+  }
+  if (manual.includes(raw) || manual.includes(normalized)) {
+    return {label: "需要人工确认", className: "audit-manual", description: "证据不足或上下文不完整，需要 Reviewer 人工判断。"};
+  }
+  if (ignored.includes(raw) || ignored.includes(normalized)) {
+    return {label: "已忽略", className: "audit-ignored", description: "该项被判断为低价值提示或暂不需要处理。"};
+  }
+  if (downgraded.includes(raw) || downgraded.includes(normalized)) {
+    return {label: "已降级", className: "audit-downgraded", description: "原本可能是风险，经审计后降级为提示或人工确认。"};
+  }
+  if (removed.includes(raw) || removed.includes(normalized)) {
+    return {label: "疑似误报", className: "audit-removed", description: "Auditor 判断该项证据不足或明显不成立。"};
+  }
+  return {label: raw || "等待 AI 判断", className: "audit-unknown", description: "等待进一步判断。"};
+}
+
+function auditStatusBadge(status) {
+  const meta = getAuditStatusMeta(status);
+  return `<span class="badge audit-status ${meta.className}" title="${escapeHtmlAttr(meta.description)}">${escapeHtml(meta.label)}</span>`;
+}
+
+function auditActionBadge(action) {
+  const map = {
+    keep: "accepted",
+    downgrade: "downgraded",
+    remove: "removed",
+    needs_human_check: "needs_human_check",
+  };
+  return auditStatusBadge(map[action] || action);
+}
+
+function riskLevelBadge(level) {
+  return `<span class="badge risk-level ${level || "medium"}">${escapeHtml(riskLevelText(level))}</span>`;
+}
+
+function legacyAuditStatusText(status) {
   const map = {
     accepted: "审计通过",
     downgraded: "已降级为待确认",

@@ -110,7 +110,6 @@
               <h2>PR Review 工作台</h2>
               <p>在这里配置 API、选择模型、提交 PR，并查看本次分析状态。</p>
             </div>
-            <button data-route="/settings/models" type="button">进入完整模型设置</button>
           </div>
           <div class="workbench-grid">
             <article class="status-card">
@@ -252,7 +251,6 @@
                 <button id="reanalyzeBtn" type="button">重新分析</button>
                 <button id="copySummaryBtn" type="button">复制摘要</button>
                 <button id="exportMarkdownBtn" type="button">导出报告</button>
-                <button data-route="/settings/models" type="button">设置</button>
               </div>
             </div>
 
@@ -452,11 +450,21 @@
             <h2>Model Settings</h2>
             <p>保存多个模型配置，Review 时按需切换。API Key 只显示掩码。</p>
           </div>
-          <button data-route="/review" type="button">返回 Review</button>
+          <div class="section-actions">
+            <button id="addModelConfigBtn" class="primary" type="button">新增模型配置</button>
+            <button data-route="/review" type="button">返回 Review</button>
+          </div>
         </div>
-        <div class="settings-grid">
-          <form id="modelForm" class="panel auth-card">
-            <h3 id="modelFormTitle">添加模型配置</h3>
+        <section class="panel list-panel model-settings-list">
+          <h3>已保存模型</h3>
+          <div id="modelConfigList" class="stack"></div>
+        </section>
+        <dialog id="modelConfigDialog" class="settings-dialog">
+          <form id="modelForm" class="model-dialog-form" method="dialog">
+            <div class="dialog-head">
+              <h3 id="modelFormTitle">添加模型配置</h3>
+              <button id="closeModelDialogBtn" class="icon-button" type="button">×</button>
+            </div>
             <input id="editingConfigId" type="hidden">
             <label class="field"><span>Provider</span><select id="modelProvider"></select></label>
             <label class="field"><span>Base URL</span><input id="modelBaseUrl" placeholder="https://..."></label>
@@ -469,11 +477,7 @@
             </div>
             <button id="resetModelFormBtn" class="link-button" type="button">清空表单</button>
           </form>
-          <section class="panel list-panel">
-            <h3>已保存模型</h3>
-            <div id="modelConfigList" class="stack"></div>
-          </section>
-        </div>
+        </dialog>
       </section>
 
       <section id="rulesView" class="page-panel hidden">
