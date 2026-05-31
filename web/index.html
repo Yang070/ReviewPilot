@@ -9,85 +9,197 @@
   <body>
     <main class="layout">
       <header class="topbar">
-        <div class="brand">
+        <button class="brand link-button" id="brandBtn" type="button">
           <span class="logo">RP</span>
-          <div>
-            <h1>ReviewPilot</h1>
-            <p>风险感知型 AI PR Review 助手</p>
-          </div>
-        </div>
+          <span>
+            <strong>ReviewPilot</strong>
+            <small>风险感知型 AI PR Review 助手</small>
+          </span>
+        </button>
         <div class="userbar">
           <span class="status hidden" id="userLabel"></span>
-          <button id="settingsBtn" class="hidden" type="button">设置</button>
-          <button id="logoutBtn" class="hidden" type="button">退出</button>
+          <div class="menu hidden" id="userMenu">
+            <button id="menuBtn" type="button">账号菜单</button>
+            <div class="menu-list hidden" id="menuList">
+              <button data-route="/settings/models" type="button">模型设置</button>
+              <button data-route="/settings/rules" type="button">规则管理</button>
+              <button data-route="/history" type="button">历史记录</button>
+              <button id="logoutBtn" type="button">退出登录</button>
+            </div>
+          </div>
         </div>
       </header>
 
-      <section id="authView" class="auth-grid">
+      <section id="loginView" class="auth-shell hidden">
+        <div class="auth-copy">
+          <span class="eyebrow">ReviewPilot Workbench</span>
+          <h2>登录后进入风险感知评审工作台</h2>
+          <p>配置模型、分析 PR、查看历史记录都在一个工作台里完成，不再把 API Key 混进注册流程。</p>
+          <div class="auth-points">
+            <span>文件风险评分</span>
+            <span>规则检测</span>
+            <span>历史报告</span>
+          </div>
+        </div>
         <form id="loginForm" class="panel auth-card">
-          <h2>登录</h2>
+          <h2>欢迎回来</h2>
           <label class="field">
             <span>账号</span>
-            <input id="loginUsername" autocomplete="username" placeholder="例如 yang070">
+            <input id="loginUsername" autocomplete="username" placeholder="用户名">
           </label>
           <label class="field">
             <span>密码</span>
             <input id="loginPassword" type="password" autocomplete="current-password">
           </label>
           <button class="primary" type="submit">登录</button>
+          <button class="link-button" data-route="/register" type="button">还没有账号，去注册</button>
         </form>
+      </section>
 
+      <section id="registerView" class="auth-shell hidden">
+        <div class="auth-copy">
+          <span class="eyebrow">Create Account</span>
+          <h2>先创建账号，再在工作台配置模型</h2>
+          <p>注册只负责身份信息。API Key 会在模型设置中单独保存、掩码展示，后续可以随时切换。</p>
+          <div class="auth-points">
+            <span>多模型配置</span>
+            <span>默认模型</span>
+            <span>连接测试</span>
+          </div>
+        </div>
         <form id="registerForm" class="panel auth-card">
-          <h2>注册</h2>
+          <h2>创建账号</h2>
           <label class="field">
-            <span>账号</span>
+            <span>用户名</span>
             <input id="registerUsername" autocomplete="username" placeholder="字母、数字或下划线">
+          </label>
+          <label class="field">
+            <span>邮箱（可选）</span>
+            <input id="registerEmail" autocomplete="email" placeholder="name@example.com">
           </label>
           <label class="field">
             <span>密码</span>
             <input id="registerPassword" type="password" autocomplete="new-password">
           </label>
           <label class="field">
-            <span>千问 API Key</span>
-            <input id="registerApiKey" type="password" autocomplete="off" placeholder="sk-...">
+            <span>确认密码</span>
+            <input id="registerConfirmPassword" type="password" autocomplete="new-password">
           </label>
-          <label class="field">
-            <span>默认模型</span>
-            <input id="registerDefaultModel" value="qwen-plus">
-          </label>
-          <button class="primary" type="submit">注册并登录</button>
+          <button class="primary" type="submit">注册</button>
+          <button class="link-button" data-route="/login" type="button">已有账号，去登录</button>
         </form>
       </section>
 
-      <section id="appView" class="workspace hidden">
-        <aside class="panel input-panel">
-          <label class="field">
-            <span>公开 GitHub PR 链接</span>
-            <input id="prUrl" placeholder="https://github.com/owner/repo/pull/1">
-          </label>
+      <section id="reviewView" class="workspace hidden">
+        <section class="workbench panel">
+          <div class="workbench-head">
+            <div>
+              <span class="eyebrow">Review Workbench</span>
+              <h2>PR Review 工作台</h2>
+              <p>在这里配置 API、选择模型、提交 PR，并查看本次分析状态。</p>
+            </div>
+            <button data-route="/settings/models" type="button">进入完整模型设置</button>
+          </div>
+          <div class="workbench-grid">
+            <article class="status-card">
+              <span>当前模型</span>
+              <strong id="currentModelName">未配置</strong>
+              <p id="currentModelMeta">请先添加模型配置。</p>
+            </article>
+            <article class="status-card">
+              <span>API Key</span>
+              <strong id="currentApiMask">未保存</strong>
+              <p>前端只显示掩码，真实 Key 加密保存在本地数据文件。</p>
+            </article>
+            <article class="status-card">
+              <span>API 名称</span>
+              <strong id="currentProviderName">未配置</strong>
+              <p id="currentBaseUrl">添加配置后会显示 Provider 和接口地址。</p>
+            </article>
+          </div>
+          <form id="quickModelForm" class="quick-model-form">
+            <label class="field"><span>Provider</span><select id="quickProvider"></select></label>
+            <label class="field"><span>API Key</span><input id="quickApiKey" type="password" placeholder="在这里输入 API Key"></label>
+            <label class="field"><span>Model Name</span><input id="quickModelName" placeholder="qwen-plus"></label>
+            <div class="quick-actions">
+              <button id="quickTestModelBtn" type="button">测试连接</button>
+              <button id="quickSaveModelBtn" class="primary" type="submit">保存为模型配置</button>
+            </div>
+            <details class="advanced-field">
+              <summary>高级设置：Base URL 会根据 Provider 自动填写</summary>
+              <label class="field"><span>Base URL</span><input id="quickBaseUrl" placeholder="https://..."></label>
+            </details>
+          </form>
+        </section>
 
-          <div class="model-grid">
+        <aside class="panel input-panel">
+          <div class="tabs">
+            <button class="active" data-input-tab="url" type="button">GitHub PR URL</button>
+            <button data-input-tab="diff" type="button">粘贴 unified diff</button>
+            <button data-input-tab="file" type="button">上传 .diff/.patch</button>
+          </div>
+
+          <div id="urlInputPane" class="input-pane">
             <label class="field">
-              <span>本次使用模型</span>
-              <select id="modelPreset">
-                <option value="qwen-plus">qwen-plus</option>
-                <option value="qwen-plus-2025-07-28">qwen-plus-2025-07-28</option>
-                <option value="qwen-long">qwen-long</option>
-                <option value="qwen-max">qwen-max</option>
-                <option value="custom">自定义</option>
-              </select>
-            </label>
-            <label class="field hidden" id="customModelField">
-              <span>自定义模型名</span>
-              <input id="customModel" placeholder="例如 qwen-plus">
+              <span>公开 GitHub PR 链接</span>
+              <input id="prUrl" placeholder="https://github.com/owner/repo/pull/1">
             </label>
           </div>
 
-          <div class="or-line">或粘贴 unified diff</div>
-          <label class="field grow">
-            <span>代码变更 Diff</span>
-            <textarea id="diffInput" spellcheck="false"></textarea>
-          </label>
+          <div id="diffInputPane" class="input-pane hidden">
+            <label class="field grow">
+              <span>代码变更 Diff</span>
+              <textarea id="diffInput" spellcheck="false"></textarea>
+            </label>
+          </div>
+
+          <div id="fileInputPane" class="input-pane hidden">
+            <label class="field">
+              <span>上传 diff 或 patch 文件</span>
+              <input id="patchFile" type="file" accept=".diff,.patch,text/plain">
+            </label>
+            <p class="helper">文件内容会读取到本地浏览器，再发送给本地 ReviewPilot 服务。</p>
+          </div>
+
+          <div class="model-grid">
+            <label class="field">
+              <span>模型配置</span>
+              <select id="modelConfigSelect"></select>
+            </label>
+            <label class="field">
+              <span>分析模式</span>
+              <select id="analysisMode">
+                <option value="fast">快速分析</option>
+                <option value="deep-audit">深度审计</option>
+                <option value="compare" disabled>多模型对比（预留）</option>
+              </select>
+            </label>
+          </div>
+          <div id="auditModelGrid" class="model-grid hidden">
+            <label class="field">
+              <span>初审模型</span>
+              <select id="reviewerModelSelect"></select>
+            </label>
+            <label class="field">
+              <span>审计模型</span>
+              <select id="auditorModelSelect"></select>
+            </label>
+          </div>
+          <div id="sameModelHint" class="notice hidden">
+            当前初审与审计使用同一模型，审计结果可能存在同源偏差。建议配置不同模型以获得更好的交叉验证效果。
+          </div>
+          <div class="rule-strip">
+            <div>
+              <strong id="enabledRuleCount">已启用 0 条规则</strong>
+              <p>规则预检会在调用 AI 前扫描新增代码行。</p>
+            </div>
+            <button data-route="/settings/rules" type="button">管理规则</button>
+          </div>
+
+          <div id="modelMissingHint" class="notice hidden">
+            当前账号还没有模型配置，请先进入模型设置中心添加 API Key 和模型名称。
+          </div>
+
           <div class="actions">
             <button id="sampleBtn" type="button">加载样例</button>
             <button id="reviewBtn" type="button" class="primary">开始评审</button>
@@ -95,108 +207,226 @@
         </aside>
 
         <section class="panel report-panel">
-          <div id="operationStatus" class="operation-status hidden">
-            <div>
-              <strong id="operationTitle">正在评审</strong>
-              <p id="operationText">正在准备分析上下文...</p>
+          <div id="emptyReport" class="empty-state">
+            <h2>准备生成风险感知型 PR Review</h2>
+            <p>系统会输出 PR 概览、上下文覆盖、文件风险排序、规则预检、AI 风险和可复制 Review Comments。</p>
+          </div>
+
+          <div id="reportContent" class="hidden">
+            <div id="operationStatus" class="operation-status hidden">
+              <div>
+                <strong id="operationTitle">正在评审</strong>
+                <p id="operationText">正在准备分析上下文...</p>
+              </div>
+              <div class="progress-track"><span id="progressBar"></span></div>
             </div>
-            <div class="progress-track"><span id="progressBar"></span></div>
-          </div>
 
-          <div class="report-head">
-            <div>
-              <h2 id="reportTitle">评审报告</h2>
-              <p id="summaryText">输入公开 PR 链接或 diff 后开始分析。</p>
+            <div class="report-head">
+              <div>
+                <h2 id="reportTitle">评审报告</h2>
+                <p id="summaryText"></p>
+              </div>
+              <span id="riskBadge" class="badge low">low</span>
             </div>
-            <span id="riskBadge" class="badge low">low</span>
-          </div>
 
-          <section class="result-section">
-            <div class="section-head">
-              <h3>顶部概览</h3>
-              <button id="copySummaryBtn" type="button">复制摘要</button>
+            <section class="result-section">
+              <div class="section-head">
+                <h3>顶部概览</h3>
+                <div class="inline-actions">
+                  <button id="copySummaryBtn" type="button">复制摘要</button>
+                  <button id="exportMarkdownBtn" type="button">导出 Markdown</button>
+                </div>
+              </div>
+              <div class="metrics">
+                <div><span>文件数</span><strong id="fileCount">0</strong></div>
+                <div><span>新增行数</span><strong id="additionCount">0</strong></div>
+                <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
+                <div><span>风险数</span><strong id="findingCount">0</strong></div>
+                <div><span>深度文件</span><strong id="evidenceCount">0</strong></div>
+                <div><span>综合评分</span><strong id="overallScore">0</strong></div>
+              </div>
+            </section>
+
+            <div class="report-tabs" id="reportTabs">
+              <button class="active" data-report-tab="overview" type="button">概览</button>
+              <button data-report-tab="files" type="button">文件</button>
+              <button data-report-tab="rules" type="button">规则预检</button>
+              <button data-report-tab="risks" type="button">风险</button>
+              <button data-report-tab="audit" type="button">深度审计</button>
+              <button data-report-tab="comments" type="button">建议</button>
+              <button data-report-tab="limits" type="button">限制</button>
             </div>
-            <div class="metrics">
-            <div><span>文件数</span><strong id="fileCount">0</strong></div>
-            <div><span>新增行数</span><strong id="additionCount">0</strong></div>
-            <div><span>删除行数</span><strong id="deletionCount">0</strong></div>
-            <div><span>风险数</span><strong id="findingCount">0</strong></div>
-            <div><span>深度文件</span><strong id="evidenceCount">0</strong></div>
-            <div><span>综合评分</span><strong id="overallScore">0</strong></div>
+
+            <div class="report-pane" data-report-panel="overview">
+              <div class="section-grid">
+                <section class="result-section"><h3>PR Overview</h3><div id="overviewBox" class="stack"></div></section>
+                <section class="result-section"><h3>Context Coverage</h3><div id="coverageBox" class="stack"></div></section>
+              </div>
             </div>
-          </section>
-
-          <div class="section-grid">
-            <section class="result-section">
-              <h3>PR 概览</h3>
-              <div id="overviewBox" class="stack"></div>
-            </section>
-            <section class="result-section">
-              <h3>上下文覆盖范围</h3>
-              <div id="coverageBox" class="stack"></div>
-            </section>
-          </div>
-
-          <div class="section-grid">
-            <section class="result-section">
-              <h3>本次 PR 文件变更概览</h3>
-              <div id="files" class="stack"></div>
-            </section>
-            <section class="result-section">
-              <h3>Risk-Aware File Ranking</h3>
-              <div id="priorityFiles" class="stack"></div>
-            </section>
-          </div>
-
-          <div class="section-grid">
-            <section class="result-section">
-              <h3>Rule Findings</h3>
-              <div id="ruleFindings" class="stack"></div>
-            </section>
-            <section class="result-section">
-              <h3>主要变更模块</h3>
-              <div id="modules" class="stack"></div>
-            </section>
-          </div>
-
-          <div class="section-grid">
-            <section class="result-section">
-              <h3>AI Review Risks</h3>
-              <div id="risks" class="stack"></div>
-            </section>
-            <section class="result-section">
-              <h3>可复制 Review Comments</h3>
-              <div id="comments" class="stack"></div>
-            </section>
-          </div>
-
-          <div class="section-grid single">
-            <section class="result-section">
-              <h3>AI 分析限制</h3>
-              <div id="limitations" class="stack"></div>
+            <div class="report-pane hidden" data-report-panel="files">
+              <div class="section-grid">
+                <section class="result-section"><h3>本次 PR 文件变更概览</h3><div id="files" class="stack"></div></section>
+                <section class="result-section"><h3>Risk-Aware File Ranking</h3><div id="priorityFiles" class="stack"></div></section>
+              </div>
+            </div>
+            <div class="report-pane hidden" data-report-panel="rules">
+              <p class="precheck-help">规则预检是在调用 AI 前，系统根据已启用的 Review 规则扫描出的候选关注点，不代表最终结论，AI 会结合 diff 证据进一步判断。</p>
+              <div class="section-grid">
+                <section class="result-section"><h3>规则预检</h3><div id="ruleFindings" class="stack"></div></section>
+                <section class="result-section"><h3>主要变更模块</h3><div id="modules" class="stack"></div></section>
+              </div>
+            </div>
+            <div class="report-pane hidden" data-report-panel="risks">
+              <section class="result-section"><h3>AI Risks</h3><div id="risks" class="stack"></div></section>
+            </div>
+            <div class="report-pane hidden" data-report-panel="audit">
+              <div class="section-grid">
+                <section class="result-section"><h3>初审结果</h3><div id="reviewerResultBox" class="stack"></div></section>
+                <section class="result-section"><h3>AI 审计结果</h3><div id="auditorResultBox" class="stack"></div></section>
+              </div>
+              <section class="result-section"><h3>最终融合结果</h3><div id="finalResultBox" class="stack"></div></section>
+            </div>
+            <div class="report-pane hidden" data-report-panel="comments">
+              <section class="result-section"><h3>Review Comments</h3><div id="comments" class="stack"></div></section>
+            </div>
+            <div class="report-pane hidden" data-report-panel="limits">
+              <section class="result-section"><h3>AI 分析限制</h3><div id="limitations" class="stack"></div></section>
+            </div>
+            <section id="reviewAskPanel" class="result-section ask-panel hidden">
+              <div class="section-head">
+                <div>
+                  <h3>Ask PR 交互追问</h3>
+                  <p>围绕当前 Review 报告继续提问，不会重新抓取 PR，也不会修改原始报告。</p>
+                </div>
+                <label class="field inline-field">
+                  <span>回答模型</span>
+                  <select id="reviewAskModelSelect"></select>
+                </label>
+              </div>
+              <div id="reviewAskSuggestions" class="suggestion-row"></div>
+              <div class="ask-input-row">
+                <textarea id="reviewAskQuestion" class="ask-textarea" placeholder="例如：这个 PR 最需要人工复核哪里？"></textarea>
+                <button id="reviewAskSendBtn" class="primary" type="button">发送追问</button>
+              </div>
+              <div id="reviewAskThreads" class="ask-thread-list"></div>
             </section>
           </div>
         </section>
       </section>
-    </main>
 
-    <dialog id="settingsDialog" class="settings-dialog">
-      <form id="settingsForm" method="dialog">
-        <div class="dialog-head">
-          <h2>账号设置</h2>
-          <button id="closeSettingsBtn" type="button">关闭</button>
+      <section id="modelsView" class="page-panel hidden">
+        <div class="section-head">
+          <div>
+            <h2>Model Settings</h2>
+            <p>保存多个模型配置，Review 时按需切换。API Key 只显示掩码。</p>
+          </div>
+          <button data-route="/review" type="button">返回 Review</button>
         </div>
-        <label class="field">
-          <span>新的千问 API Key</span>
-          <input id="settingsApiKey" type="password" placeholder="留空则不修改">
-        </label>
-        <label class="field">
-          <span>默认模型</span>
-          <input id="settingsDefaultModel" placeholder="qwen-plus">
-        </label>
-        <button class="primary" type="submit">保存设置</button>
-      </form>
-    </dialog>
+        <div class="settings-grid">
+          <form id="modelForm" class="panel auth-card">
+            <h3 id="modelFormTitle">添加模型配置</h3>
+            <input id="editingConfigId" type="hidden">
+            <label class="field"><span>Provider</span><select id="modelProvider"></select></label>
+            <label class="field"><span>Base URL</span><input id="modelBaseUrl" placeholder="https://..."></label>
+            <label class="field"><span>API Key</span><input id="modelApiKey" type="password" placeholder="新增必填，编辑时留空则不修改"></label>
+            <label class="field"><span>Model Name</span><input id="modelName" placeholder="qwen-plus"></label>
+            <label class="check-row"><input id="modelDefault" type="checkbox"> 设为默认模型</label>
+            <div class="actions">
+              <button id="testModelBtn" type="button">测试连接</button>
+              <button class="primary" type="submit">保存配置</button>
+            </div>
+            <button id="resetModelFormBtn" class="link-button" type="button">清空表单</button>
+          </form>
+          <section class="panel list-panel">
+            <h3>已保存模型</h3>
+            <div id="modelConfigList" class="stack"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="rulesView" class="page-panel hidden">
+        <div class="section-head">
+          <div>
+            <h2>规则管理</h2>
+            <p>管理调用 AI 前执行的规则预检。规则命中只代表候选关注点，不代表最终结论。</p>
+          </div>
+          <button data-route="/review" type="button">返回 Review</button>
+        </div>
+        <div class="settings-grid">
+          <form id="ruleForm" class="panel auth-card">
+            <h3 id="ruleFormTitle">新增规则</h3>
+            <input id="editingRuleId" type="hidden">
+            <label class="field"><span>规则名称</span><input id="ruleName" placeholder="例如 异步错误处理检查"></label>
+            <label class="field"><span>规则说明</span><textarea id="ruleDescription" class="small-textarea"></textarea></label>
+            <div class="model-grid">
+              <label class="field"><span>分类</span><select id="ruleCategory"><option>frontend</option><option>backend</option><option>common</option></select></label>
+              <label class="field"><span>语言</span><select id="ruleLanguage"><option>javascript/typescript</option><option>javascript</option><option>typescript</option><option>python</option><option>java</option><option>common</option></select></label>
+            </div>
+            <label class="field"><span>适用文件</span><input id="ruleFilePatterns" placeholder="*.ts, *.tsx"></label>
+            <label class="field"><span>触发关键词</span><input id="ruleIncludeKeywords" placeholder="async, await"></label>
+            <label class="field"><span>排除关键词</span><input id="ruleExcludeKeywords" placeholder="try, catch"></label>
+            <label class="field"><span>风险等级</span><select id="ruleSeverity"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+            <label class="field"><span>命中提示</span><input id="ruleMessage"></label>
+            <label class="field"><span>建议动作</span><input id="ruleSuggestion"></label>
+            <label class="check-row"><input id="ruleEnabled" type="checkbox" checked> 启用规则</label>
+            <div class="actions"><button id="resetRuleFormBtn" type="button">清空</button><button class="primary" type="submit">保存规则</button></div>
+          </form>
+          <section class="panel list-panel">
+            <div class="section-head">
+              <h3>当前规则</h3>
+              <button id="loadTemplatesBtn" type="button">从模板复制</button>
+            </div>
+            <div id="ruleTemplateList" class="stack hidden"></div>
+            <div id="ruleList" class="stack"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="historyView" class="page-panel hidden">
+        <div class="section-head">
+          <div>
+            <h2>History</h2>
+            <p>这里只展示做过的 Review 记录。点击记录可以在当前页面查看报告，不会跳回主工作台。</p>
+          </div>
+          <button data-route="/review" type="button">返回 Review</button>
+        </div>
+        <div class="history-layout">
+          <div id="historyList" class="stack"></div>
+          <section id="historyDetail" class="panel history-detail hidden">
+            <div class="section-head">
+              <div>
+                <h3 id="historyDetailTitle">历史报告</h3>
+                <p id="historyDetailMeta"></p>
+              </div>
+              <div class="inline-actions">
+                <button id="historyDownloadBtn" type="button">下载 Markdown</button>
+                <button id="historyCloseBtn" type="button">关闭</button>
+              </div>
+            </div>
+            <p id="historyDetailSummary" class="history-summary"></p>
+            <section id="historyAskPanel" class="result-section ask-panel hidden">
+              <div class="section-head">
+                <div>
+                  <h3>Ask PR 交互追问</h3>
+                  <p>基于这条历史报告继续提问，方便复盘风险、规则预检和审计结论。</p>
+                </div>
+                <label class="field inline-field">
+                  <span>回答模型</span>
+                  <select id="historyAskModelSelect"></select>
+                </label>
+              </div>
+              <div id="historyAskSuggestions" class="suggestion-row"></div>
+              <div class="ask-input-row">
+                <textarea id="historyAskQuestion" class="ask-textarea" placeholder="例如：规则预检命中的问题有没有被 AI 采纳？"></textarea>
+                <button id="historyAskSendBtn" class="primary" type="button">发送追问</button>
+              </div>
+              <div id="historyAskThreads" class="ask-thread-list"></div>
+            </section>
+            <pre id="historyMarkdownPreview" class="markdown-preview"></pre>
+          </section>
+        </div>
+      </section>
+    </main>
 
     <dialog id="messageDialog" class="message-dialog">
       <div class="message-box">

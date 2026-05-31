@@ -82,6 +82,59 @@ PR 链接或 diff
 
 模型只能基于提供的 diff、风险排序、规则检测和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端会过滤没有引用变更文件或具体证据的 Review 建议。
 
+## 规则预检
+
+ReviewPilot 在调用 AI 前会先执行已启用的 Review 规则。规则预检只扫描新增代码行，命中结果是候选关注点，不代表最终结论。AI 会结合 diff 证据进一步判断是否采纳、降级为待确认或忽略。
+
+规则支持在页面中管理：
+
+- 启用或禁用规则。
+- 新增、编辑、删除规则。
+- 从模板复制规则。
+- 配置适用文件、触发关键词、排除关键词、风险等级、命中提示和建议动作。
+
+内置模板包括 React Router 兜底路由、异步错误处理、Context Provider、删除或重命名文件引用、package.json 与 lock 文件同步、表单校验、后端接口权限和环境变量泄露检查。
+
+## 双模型审计机制
+
+单模型 AI Review 容易出现两类问题：一是误报，把没有足够证据的问题说得过于确定；二是漏报，忽略规则预检或高风险文件中的候选风险。因此 ReviewPilot 增加了 Reviewer-Auditor Review Pipeline。
+
+- Reviewer Model 负责初步发现风险、总结变更和生成 Review Comments。
+- Auditor Model 不重新写完整 Review，只审计 Reviewer 输出，检查证据是否充分、是否过度推断、是否遗漏规则预检命中项、风险等级和置信度是否合理。
+- Auditor 不能完全消除误报和漏报，它只是第二层辅助校验，用来降低单模型输出的不确定性。
+- 融合逻辑会保留证据充分的风险；将证据不足或置信度低的风险降级为 `needs_human_check`；将明显误检移入 `dismissed_risks`；Auditor 补充的漏检候选默认作为 `potential_risk` 或 `needs_human_check`，不直接认定为确定 bug。
+
+这个机制让用户看到“初审结果、审计结果、最终融合结果”，更接近真实代码评审中的二次复核流程。
+
+深度审计接口示例：
+
+```http
+POST /api/review/deep-audit
+Content-Type: application/json
+Authorization: Bearer <登录后的 token>
+```
+
+```json
+{
+  "pr_url": "https://github.com/owner/repo/pull/1",
+  "diff_text": "",
+  "reviewer_model_config_id": "model_xxx",
+  "auditor_model_config_id": "model_yyy",
+  "rule_set_id": "default",
+  "analysis_mode": "deep_audit"
+}
+```
+
+## Ask PR 交互追问
+
+完成一次 Review 后，用户可以在报告页或历史详情页继续追问当前 PR。Ask PR 不会重新抓取 GitHub PR，也不会修改原始 Review 报告，只会读取该历史记录中已经保存的上下文：
+
+- PR 概览、文件变更、重点分析文件和上下文覆盖范围。
+- 规则预检结果、初审模型结果、审计模型结果。
+- 最终总结、主要变更模块、最终风险和 Review Comments。
+
+Ask PR 的回答必须基于已有报告。如果上下文不足，系统会明确提示“当前上下文无法确认”，并给出需要人工复核的说明。每次追问会保存到对应历史记录的 `ask_threads` 中，方便后续复盘。
+
 ## 数据与安全说明
 
 - 用户数据保存在本地 `data/users.json`。
