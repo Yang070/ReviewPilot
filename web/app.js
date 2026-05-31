@@ -197,6 +197,7 @@ let selectedHistoryId = "";
 let historyItemsState = [];
 let reviewAskThreadsState = [];
 let historyAskThreadsState = [];
+let askSendingState = {review: false, history: false};
 let progressTimer = null;
 let progressState = null;
 let progressStepIndex = 0;
@@ -306,6 +307,11 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", async (event) => {
   const copyButton = event.target.closest("[data-copy]");
   if (copyButton) await copyText(copyButton.dataset.copy, "Review Comment 已复制。");
+  const retryAsk = event.target.closest("[data-ask-retry]");
+  if (retryAsk) {
+    await retryAskThread(retryAsk.dataset.askScope || "review", retryAsk.dataset.askRetry || "");
+    return;
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -317,7 +323,10 @@ document.addEventListener("click", (event) => {
     return;
   }
   const askSuggestion = event.target.closest("[data-ask-suggestion]");
-  if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
+  if (askSuggestion) {
+    sendAsk(askSuggestion.dataset.askScope || "review", askSuggestion.dataset.askSuggestion || "");
+    return;
+  }
   const riskAsk = event.target.closest("[data-risk-ask]");
   if (riskAsk) {
     const annotation = findAskAnnotation(riskAsk.dataset.riskAsk);
@@ -657,6 +666,13 @@ historyStartDateFilter.addEventListener("change", renderFilteredHistory);
 historyEndDateFilter.addEventListener("change", renderFilteredHistory);
 reviewAskSendBtn.addEventListener("click", () => sendAsk("review"));
 historyAskSendBtn.addEventListener("click", () => sendAsk("history"));
+[reviewAskQuestion, historyAskQuestion].forEach((input, index) => {
+  input?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    sendAsk(index === 0 ? "review" : "history");
+  });
+});
 
 reportTabs.addEventListener("click", (event) => {
   const button = event.target.closest("[data-report-tab]");
@@ -1593,6 +1609,7 @@ function renderReport(data) {
 
 function renderAskPanel(scope, historyId, threads) {
   const refs = askRefs(scope);
+  const sending = askSendingState[scope];
   refs.panel.classList.remove("hidden");
   refs.panel.classList.toggle("ask-disabled", !historyId);
   refs.panel.dataset.historyId = historyId || "";
@@ -1602,20 +1619,25 @@ function renderAskPanel(scope, historyId, threads) {
       ? "继续提问关于本次 PR 的问题，例如：这个风险为什么成立？"
       : "当前报告还没有可追问的历史 ID，请重新分析后再提问。";
   }
-  if (refs.sendBtn) refs.sendBtn.disabled = !historyId;
+  if (refs.sendBtn) {
+    refs.sendBtn.disabled = !historyId || sending;
+    refs.sendBtn.textContent = sending ? "生成中..." : "发送";
+    refs.sendBtn.classList.toggle("is-loading", sending);
+  }
   refs.suggestions.innerHTML = askSuggestions.map(question =>
     `<button type="button" data-ask-scope="${scope}" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
   ).join("");
   refs.threads.innerHTML = historyId
-    ? (threads.length ? threads.map(renderAskThread).join("") : renderAskEmptyState())
+    ? (threads.length ? threads.map(item => renderAskThread(item, scope)).join("") : renderAskEmptyState())
     : renderAskUnavailableState();
-  if (refs.context) refs.context.innerHTML = renderAskContext(threads[threads.length - 1]);
+  if (refs.context) refs.context.innerHTML = renderAskContext(latestCompletedAskThread(threads));
+  requestAnimationFrame(() => scrollAskToBottom(scope));
 }
 
-async function sendAsk(scope) {
+async function sendAsk(scope, explicitQuestion = "") {
   const refs = askRefs(scope);
   const historyId = refs.panel.dataset.historyId;
-  const question = refs.question.value.trim();
+  const question = (explicitQuestion || refs.question.value || "").trim();
   if (!historyId) {
     showError("当前报告还没有保存为历史记录，暂时不能追问。");
     return;
@@ -1624,7 +1646,13 @@ async function sendAsk(scope) {
     showError("请输入要追问的问题。");
     return;
   }
-  refs.sendBtn.disabled = true;
+  if (askSendingState[scope]) return;
+  const tempThread = createOptimisticAskThread(question);
+  const nextThreads = [...askStateForScope(scope), tempThread];
+  setAskStateForScope(scope, nextThreads);
+  askSendingState[scope] = true;
+  refs.question.value = "";
+  renderAskPanel(scope, historyId, nextThreads);
   try {
     const data = await apiFetch("/api/ask", {
       method: "POST",
@@ -1635,19 +1663,95 @@ async function sendAsk(scope) {
       }),
     });
     const thread = data.ask_thread || {question, ...data, created_at: Math.floor(Date.now() / 1000)};
-    if (scope === "review") {
-      reviewAskThreadsState.push(thread);
-      renderAskPanel("review", historyId, reviewAskThreadsState);
-    } else {
-      historyAskThreadsState.push(thread);
-      renderAskPanel("history", historyId, historyAskThreadsState);
-    }
-    refs.question.value = "";
+    replaceAskThread(scope, tempThread.temp_id, {...thread, status: "done"});
   } catch (err) {
-    showError(err);
+    replaceAskThread(scope, tempThread.temp_id, {
+      ...tempThread,
+      status: "error",
+      answer: "回答生成失败，请检查模型配置或网络连接后重试。",
+      error_message: formatUserFriendlyError(err).message,
+    });
   } finally {
-    refs.sendBtn.disabled = false;
+    askSendingState[scope] = false;
+    renderAskPanel(scope, historyId, askStateForScope(scope));
   }
+}
+
+async function retryAskThread(scope, tempId) {
+  const refs = askRefs(scope);
+  const historyId = refs.panel.dataset.historyId;
+  const thread = askStateForScope(scope).find(item => item.temp_id === tempId || item.id === tempId);
+  if (!thread || askSendingState[scope]) return;
+  askSendingState[scope] = true;
+  replaceAskThread(scope, tempId, {
+    ...thread,
+    status: "loading",
+    answer: "正在分析当前 PR，请稍候...",
+    error_message: "",
+  });
+  renderAskPanel(scope, historyId, askStateForScope(scope));
+  try {
+    const data = await apiFetch("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({
+        history_id: historyId,
+        question: thread.question,
+        model_config_id: refs.modelSelect.value,
+      }),
+    });
+    const next = data.ask_thread || {question: thread.question, ...data, created_at: Math.floor(Date.now() / 1000)};
+    replaceAskThread(scope, tempId, {...next, status: "done"});
+  } catch (err) {
+    replaceAskThread(scope, tempId, {
+      ...thread,
+      status: "error",
+      answer: "回答生成失败，请检查模型配置或网络连接后重试。",
+      error_message: formatUserFriendlyError(err).message,
+    });
+  } finally {
+    askSendingState[scope] = false;
+    renderAskPanel(scope, historyId, askStateForScope(scope));
+  }
+}
+
+function createOptimisticAskThread(question) {
+  return {
+    temp_id: `ask_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    question,
+    answer: "正在分析当前 PR，请稍候...",
+    status: "loading",
+    created_at: Math.floor(Date.now() / 1000),
+    related_files: [],
+    related_risks: [],
+    confidence: 0,
+    limitations: [],
+  };
+}
+
+function askStateForScope(scope) {
+  return scope === "history" ? historyAskThreadsState : reviewAskThreadsState;
+}
+
+function setAskStateForScope(scope, threads) {
+  if (scope === "history") historyAskThreadsState = threads;
+  else reviewAskThreadsState = threads;
+}
+
+function replaceAskThread(scope, tempId, nextThread) {
+  const threads = askStateForScope(scope).map(item =>
+    item.temp_id === tempId || item.id === tempId ? nextThread : item
+  );
+  setAskStateForScope(scope, threads);
+}
+
+function latestCompletedAskThread(threads) {
+  return [...(threads || [])].reverse().find(item => item.status !== "loading" && item.status !== "error") || threads?.[threads.length - 1];
+}
+
+function scrollAskToBottom(scope) {
+  const refs = askRefs(scope);
+  if (!refs.threads) return;
+  refs.threads.scrollTop = refs.threads.scrollHeight;
 }
 
 function askRefs(scope) {
@@ -1777,10 +1881,11 @@ function goToAskPRWithQuestion(question, context) {
   navigate("/review");
   setSidebarActive("ask");
   setReportTab("ask");
-  fillAskQuestion("review", question);
   if (reviewAskContext && context) {
     reviewAskContext.innerHTML = renderFileAskContext(context);
   }
+  if (reviewAskPanel?.dataset.historyId) sendAsk("review", question);
+  else fillAskQuestion("review", question);
 }
 
 function renderFileAskContext(context) {
@@ -1802,23 +1907,33 @@ function renderFileAskContext(context) {
   </div>`;
 }
 
-function renderAskThread(item) {
+function renderAskThread(item, scope = "review") {
+  const status = item.status || "done";
   const confidence = Number(item.confidence || 0);
   const files = item.related_files || [];
   const risks = item.related_risks || [];
   const limitations = item.limitations || [];
-  const badge = confidence < 60 ? `<span class="badge medium">需要人工确认</span>` : `<span class="badge low">可信度 ${confidence}%</span>`;
+  const badge = status === "loading"
+    ? `<span class="badge info">生成中</span>`
+    : status === "error"
+      ? `<span class="badge high">失败</span>`
+      : confidence < 60 ? `<span class="badge medium">需要人工确认</span>` : `<span class="badge low">可信度 ${confidence}%</span>`;
+  const threadId = item.temp_id || item.id || "";
   return `<div class="chat-turn">
-    <article class="chat-message user-message"><p>${escapeHtml(item.question || "追问")}</p></article>
-    <article class="chat-message ai-message">
-      <div class="chat-message-head"><strong>ReviewPilot AI</strong>${badge}</div>
-      <p>${escapeHtml(item.answer || "当前上下文无法确认。")}</p>
-      <div class="chat-meta">
+    <article class="chat-message user-message"><div class="chat-message-head"><strong>我</strong></div><p>${escapeHtml(item.question || "追问")}</p></article>
+    <article class="chat-message ai-message ${status === "loading" ? "loading-message" : ""} ${status === "error" ? "error-message" : ""}">
+      <div class="chat-message-head"><strong>ReviewPilot</strong>${badge}</div>
+      <p>${escapeHtml(item.answer || "当前上下文无法确认。")}${status === "loading" ? `<span class="typing-dots"><i></i><i></i><i></i></span>` : ""}</p>
+      ${item.error_message ? `<p class="ask-error-detail">${escapeHtml(item.error_message)}</p>` : ""}
+      ${status === "done" ? `<div class="chat-meta">
         <span>相关文件：${escapeHtml(files.length ? files.join(", ") : "暂无明确引用")}</span>
         <span>相关风险：${escapeHtml(risks.length ? risks.join(", ") : "暂无明确引用")}</span>
-      </div>
+      </div>` : ""}
       ${limitations.length ? `<p class="audit-note">${escapeHtml(limitations.join("；"))}</p>` : ""}
-      <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>
+      <div class="inline-actions">
+        ${status === "error" ? `<button class="copy-btn" type="button" data-ask-retry="${escapeHtmlAttr(threadId)}" data-ask-scope="${escapeHtmlAttr(scope)}">重试</button><button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.question || "")}">复制问题</button>` : ""}
+        ${status === "done" ? `<button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(item.answer || "")}">复制回答</button>` : ""}
+      </div>
     </article>
   </div>`;
 }
