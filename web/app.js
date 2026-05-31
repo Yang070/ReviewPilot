@@ -222,6 +222,13 @@ const reviewProgressStages = [
   {key: "finalize", label: "生成最终报告"},
 ];
 
+function progressStagesForMode(mode = analysisMode?.value) {
+  if (mode === "deep-audit" || mode === "deep_audit") return reviewProgressStages;
+  return reviewProgressStages
+    .filter(stage => stage.key !== "auditor")
+    .map(stage => stage.key === "reviewer" ? {...stage, label: "AI 模型评审"} : stage);
+}
+
 const providerDefaults = {
   OpenAI: "https://api.openai.com/v1",
   Qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -2623,6 +2630,7 @@ function createApiError(message, meta = {}) {
 }
 
 function startProgress(title, text) {
+  const mode = analysisMode.value;
   reportContent.classList.remove("hidden");
   emptyReport.classList.add("hidden");
   if (progressModalTitle) progressModalTitle.textContent = "正在分析 PR";
@@ -2630,20 +2638,28 @@ function startProgress(title, text) {
   progressModalText.textContent = text || "当前阶段：准备分析";
   clearInterval(progressTimer);
   progressStepIndex = 0;
-  setProgressState({task_id: "", progress: 10, current_stage: "fetch_pr"});
+  progressState = null;
+  updateProgressSafely(8, "fetch_pr", {task_id: "", mode});
   progressTimer = setInterval(() => {
-    const steps = [
-      {progress: 25, stage: "parse_diff"},
-      {progress: 40, stage: "rank_files"},
-      {progress: 55, stage: "rule_check"},
-      {progress: 70, stage: "reviewer"},
-      {progress: 85, stage: "auditor"},
-    ];
+    const steps = progressStepsForMode(mode);
     const next = steps[progressStepIndex];
     if (!next) return;
     progressStepIndex += 1;
     setProgressState({progress: next.progress, current_stage: next.stage});
   }, 1200);
+}
+
+function progressStepsForMode(mode) {
+  const base = [
+    {progress: 25, stage: "parse_diff"},
+    {progress: 40, stage: "rank_files"},
+    {progress: 55, stage: "rule_check"},
+    {progress: 75, stage: "reviewer"},
+  ];
+  if (mode === "deep-audit" || mode === "deep_audit") {
+    return [...base, {progress: 85, stage: "auditor"}];
+  }
+  return [...base, {progress: 85, stage: "reviewer"}];
 }
 
 function updateProgress(value, text) {
@@ -2664,9 +2680,21 @@ function stopProgress() {
   setTimeout(() => progressModal.classList.add("hidden"), 900);
 }
 
-function progressStageForPercent(value) {
-  if (value >= 85) return "finalize";
-  if (value >= 70) return "auditor";
+function updateProgressSafely(nextProgress, nextStage, extra = {}) {
+  const previousProgress = Number(progressState?.progress || 0);
+  const incomingProgress = Number(nextProgress || 0);
+  setProgressState({
+    ...extra,
+    progress: Math.max(previousProgress, incomingProgress),
+    current_stage: nextStage || progressState?.current_stage || "fetch_pr",
+  });
+}
+
+function progressStageForPercent(value, mode = progressState?.mode ?? analysisMode?.value) {
+  if (value >= 90) return "finalize";
+  if (mode === "deep-audit" || mode === "deep_audit") {
+    if (value >= 70) return "auditor";
+  }
   if (value >= 55) return "reviewer";
   if (value >= 40) return "rule_check";
   if (value >= 25) return "rank_files";
@@ -2675,13 +2703,23 @@ function progressStageForPercent(value) {
 }
 
 function setProgressState(partial) {
-  const current = partial.current_stage || progressState?.current_stage || "fetch_pr";
-  const currentIndex = reviewProgressStages.findIndex(stage => stage.key === current);
+  const mode = partial.mode ?? progressState?.mode ?? analysisMode?.value ?? "fast";
+  const stages = progressStagesForMode(mode);
+  const previousProgress = Number(progressState?.progress || 0);
+  const requestedProgress = Number(partial.progress ?? previousProgress);
+  const progress = partial.failed ? previousProgress : Math.max(previousProgress, requestedProgress);
+  const requestedStage = partial.current_stage || progressState?.current_stage || "fetch_pr";
+  const requestedIndex = Math.max(0, stages.findIndex(stage => stage.key === requestedStage));
+  const previousIndex = Math.max(0, stages.findIndex(stage => stage.key === progressState?.current_stage));
+  const progressIndex = Math.max(0, stages.findIndex(stage => stage.key === progressStageForPercent(progress, mode)));
+  const currentIndex = partial.failed ? previousIndex : Math.max(previousIndex, requestedIndex, progressIndex);
+  const current = stages[currentIndex]?.key || requestedStage;
   progressState = {
     task_id: partial.task_id ?? progressState?.task_id ?? "",
-    progress: partial.progress ?? progressState?.progress ?? 0,
+    mode,
+    progress,
     current_stage: current,
-    stages: reviewProgressStages.map((stage, index) => ({
+    stages: stages.map((stage, index) => ({
       ...stage,
       status: partial.failed && stage.key === current
         ? "failed"
@@ -2697,7 +2735,7 @@ function setProgressState(partial) {
 
 function renderProgressModal() {
   const progress = Math.max(0, Math.min(100, Number(progressState?.progress || 0)));
-  const current = reviewProgressStages.find(stage => stage.key === progressState?.current_stage);
+  const current = progressStagesForMode(progressState?.mode).find(stage => stage.key === progressState?.current_stage);
   progressModalText.textContent = `当前阶段：${current?.label || "准备分析"}`;
   progressPercent.textContent = `${Math.round(progress)}%`;
   progressBar.style.width = `${progress}%`;
