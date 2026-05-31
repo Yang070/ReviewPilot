@@ -1,33 +1,69 @@
 # ReviewPilot
 
-ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公开 GitHub PR 链接，或直接粘贴 unified diff。系统会解析代码变更、构建证据链，并调用千问生成中文 Review 报告。
+## 1. 项目简介
 
-## 功能
+ReviewPilot 是一个面向 Pull Request 的 AI 代码评审助手，帮助开发者在提交代码后快速理解变更内容、定位高风险文件，并生成可复核的 Review 建议。
 
-- 支持注册和登录。
-- 注册时保存用户账号、密码和千问 API Key。
-- 登录后自动使用该账号保存的 API Key，不需要每次在命令行输入。
-- 支持在设置中修改千问 API Key 和默认模型。
-- 每次评审可以选择模型：`qwen-plus`、`qwen-plus-2025-07-28`、`qwen-long`、`qwen-max` 或自定义模型名。
-- 支持无需登录 GitHub 获取公开 PR 的 diff。
-- 支持直接粘贴 unified diff 进行分析。
-- 解析变更文件、hunk、新增行和删除行。
-- 为每个变更文件计算 `risk_score`，展示 Risk-Aware File Ranking。
-- 根据风险分选择上下文，高风险文件保留更多 patch，低风险文件只保留摘要。
-- 内置规则检测：路由兜底、异步错误处理、Provider 包裹、删除/重命名引用同步、依赖 lock 同步。
-- 从代码变更和规则检测中抽取证据链。
-- 要求每条 Review 建议包含文件、证据、风险等级、置信度和修改建议。
+项目支持 GitHub PR 链接评审、粘贴 unified diff、上传 `.diff` / `.patch` 文件，并结合风险感知分析、规则预检、Reviewer / Auditor 双模型审计、Ask PR 交互式追问和可视化审查界面，形成从输入、分析、复核到报告导出的完整 PR Review 流程。
 
-## 项目文档
+![ReviewPilot 项目架构图](docs/reviewpilot_项目架构图解析.png)
 
-- [需求文档](docs/需求文档.md)
-- [接口文档](docs/接口文档.md)
-- [Demo 样例文档](docs/Demo样例文档.md)
-- [赛题对齐说明](docs/赛题对齐说明.md)
-- [提交与 PR 规范](docs/提交与PR规范.md)
-- [架构设计](docs/architecture.md)
+- 技术细节见：[技术文档](docs/architecture.md)
+- 需求拆解见：[需求文档](docs/需求文档.md)
 
-## 本地运行
+## 2. Demo 链接
+
+- 在线 Demo：待补充
+- 演示视频：https://b23.tv/AEi4NFt
+
+## 3. 项目亮点 / 原创功能
+
+- **风险感知文件排序**：根据文件类型、变更规模和潜在影响范围，对 PR 中的变更文件进行风险排序，帮助开发者优先关注高风险部分。
+- **可配置规则预检**：在大模型分析前先进行规则检查，对大文件、危险改动、配置变更等内容进行基础预警。
+- **Reviewer-Auditor 双模型审计**：先由 Reviewer 生成 Review 建议，再由 Auditor 进行复核，降低误报和漏报。
+- **Ask PR 交互式追问**：支持用户围绕当前 PR 继续提问，例如追问高风险文件、潜在 Bug 或修改建议。
+- **历史记录与报告导出**：保存 Review 历史，支持查看过往分析结果，并导出 Markdown 报告。
+- **多模型 / API Key 配置中心**：支持配置 OpenAI-Compatible 模型接口，方便接入 Qwen、DeepSeek、OpenAI 等模型服务。
+
+### 算法亮点：基于知识图谱式提示链的风险感知 PR Review 策略层
+
+该设计参考了 **KnowGPT: Knowledge Graph based Prompting for Large Language Models** 中“先构建知识结构，再引导大模型推理”的思想。ReviewPilot 不会直接把完整 diff 丢给大模型，而是先把 PR 信息结构化成一张 Review Knowledge Graph / Review 关系图，再让 Reviewer 与 Auditor 基于结构化关系进行两阶段推理。
+
+相比单纯调用大模型 API，这种方式先提取 PR 的文件关系、变更类型、风险信号和上下文线索，再组织模型进行审查，有助于提升 Review 结果的可解释性，并减少误报和漏报。
+
+## 4. 依赖说明
+
+本项目为本地运行版本，主要需要：
+
+- **Python 运行环境**
+- **浏览器**
+- **大模型 API Key**
+
+模型调用支持 OpenAI-Compatible 接口，可接入 Qwen、DeepSeek、OpenAI 等模型服务。用户需要自行准备可用的大模型 API Key，并在系统的模型设置中配置。
+
+为方便评审团在没有 API Key 的情况下体验项目，仓库预留了一个本地演示账号：
+
+```text
+账号：asd
+密码：123456
+```
+
+说明：演示账号使用的免费 API 可能存在响应延迟，请耐心等待；如果请求超时或额度不可用，请及时更换为自己的可用 API Key。
+
+## 5. 核心功能
+
+- **PR 链接评审**：输入公开 GitHub PR 链接后自动获取 diff 并生成评审结果。
+- **Diff / Patch 输入**：支持直接粘贴 unified diff 或上传 `.diff` / `.patch` 文件。
+- **风险文件列表**：按风险等级、问题数量和人工复核优先级展示变更文件。
+- **Unified Diff 阅读**：在统一代码视图中查看新增、删除、上下文代码和行内 AI 标记。
+- **AI 问题卡片**：按潜在 Bug、安全风险、可维护性、测试覆盖等类型展示问题。
+- **Review 操作**：支持复制 Review Comment、忽略当前问题和 Ask PR 追问。
+- **Ask PR 聊天**：围绕当前 PR 继续提问，支持即时展示用户消息和 AI 生成状态。
+- **深度审计**：支持 Reviewer / Auditor 双模型复核并融合最终结果。
+- **历史记录**：保存过往 Review 结果，便于复盘和导出报告。
+- **模型设置**：在页面中配置模型 Provider、Base URL、API Key 和模型名称。
+
+## 6. 使用方式
 
 启动本地服务：
 
@@ -41,121 +77,23 @@ python server.py
 http://127.0.0.1:8770
 ```
 
-可选环境变量：
+登录方式：
 
-```text
-REVIEWPILOT_PORT=8770
-```
+- 使用演示账号 `asd / 123456` 登录体验。
+- 或注册新账号，并在模型设置中配置自己的大模型 API Key。
 
-## 使用方式
+发起一次 Review：
 
-首次使用需要注册：
+1. 输入 GitHub PR 链接，或粘贴 unified diff，或上传 `.diff` / `.patch` 文件。
+2. 选择模型配置和分析模式。
+3. 点击“开始评审”。
+4. 在总览、代码评审、AI 问题面板和 Ask PR 中查看结果。
+5. 如需沉淀评审意见，可复制 Review Comment 或导出 Markdown 报告。
 
-1. 输入账号。
-2. 输入密码。
-3. 填写千问 API Key。
-4. 设置默认模型，例如 `qwen-plus`。
+## 7. 当前限制和未来优化
 
-之后直接登录即可，不需要再输入 API Key。如果 API Key 变化，可以在右上角“设置”中修改。
-
-评审时任选一种输入方式：
-
-- 输入公开 GitHub PR 链接，例如 `https://github.com/owner/repo/pull/1`。
-- 粘贴 unified diff。
-
-然后选择本次使用的大语言模型并点击“开始评审”。
-
-## 设计思路
-
-项目采用“证据优先”的流程：
-
-```text
-PR 链接或 diff
--> diff 解析器
--> 文件风险评分
--> 规则检测
--> 风险感知上下文选择
--> 千问 Review Provider
--> 证据校验
--> Review 报告
-```
-
-模型只能基于提供的 diff、风险排序、规则检测和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端会过滤没有引用变更文件或具体证据的 Review 建议。
-
-## 规则预检
-
-ReviewPilot 在调用 AI 前会先执行已启用的 Review 规则。规则预检只扫描新增代码行，命中结果是候选关注点，不代表最终结论。AI 会结合 diff 证据进一步判断是否采纳、降级为待确认或忽略。
-
-规则支持在页面中管理：
-
-- 启用或禁用规则。
-- 新增、编辑、删除规则。
-- 从模板复制规则。
-- 配置适用文件、触发关键词、排除关键词、风险等级、命中提示和建议动作。
-
-内置模板包括 React Router 兜底路由、异步错误处理、Context Provider、删除或重命名文件引用、package.json 与 lock 文件同步、表单校验、后端接口权限和环境变量泄露检查。
-
-## 双模型审计机制
-
-单模型 AI Review 容易出现两类问题：一是误报，把没有足够证据的问题说得过于确定；二是漏报，忽略规则预检或高风险文件中的候选风险。因此 ReviewPilot 增加了 Reviewer-Auditor Review Pipeline。
-
-- Reviewer Model 负责初步发现风险、总结变更和生成 Review Comments。
-- Auditor Model 不重新写完整 Review，只审计 Reviewer 输出，检查证据是否充分、是否过度推断、是否遗漏规则预检命中项、风险等级和置信度是否合理。
-- Auditor 不能完全消除误报和漏报，它只是第二层辅助校验，用来降低单模型输出的不确定性。
-- 融合逻辑会保留证据充分的风险；将证据不足或置信度低的风险降级为 `needs_human_check`；将明显误检移入 `dismissed_risks`；Auditor 补充的漏检候选默认作为 `potential_risk` 或 `needs_human_check`，不直接认定为确定 bug。
-
-这个机制让用户看到“初审结果、审计结果、最终融合结果”，更接近真实代码评审中的二次复核流程。
-
-深度审计接口示例：
-
-```http
-POST /api/review/deep-audit
-Content-Type: application/json
-Authorization: Bearer <登录后的 token>
-```
-
-```json
-{
-  "pr_url": "https://github.com/owner/repo/pull/1",
-  "diff_text": "",
-  "reviewer_model_config_id": "model_xxx",
-  "auditor_model_config_id": "model_yyy",
-  "rule_set_id": "default",
-  "analysis_mode": "deep_audit"
-}
-```
-
-## Ask PR 交互追问
-
-完成一次 Review 后，用户可以在报告页或历史详情页继续追问当前 PR。Ask PR 不会重新抓取 GitHub PR，也不会修改原始 Review 报告，只会读取该历史记录中已经保存的上下文：
-
-- PR 概览、文件变更、重点分析文件和上下文覆盖范围。
-- 规则预检结果、初审模型结果、审计模型结果。
-- 最终总结、主要变更模块、最终风险和 Review Comments。
-
-Ask PR 的回答必须基于已有报告。如果上下文不足，系统会明确提示“当前上下文无法确认”，并给出需要人工复核的说明。每次追问会保存到对应历史记录的 `ask_threads` 中，方便后续复盘。
-
-## 数据与安全说明
-
-- 用户数据保存在本地 `data/users.json`。
-- 密码不会明文保存，只保存加盐哈希。
-- 千问 API Key 使用本地服务密钥加密保存。
-- `data/users.json` 和 `data/app_secret.key` 已加入 `.gitignore`，不会提交到 GitHub。
-
-## 验证命令
-
-```powershell
-python -m unittest discover -s tests
-python -m py_compile server.py reviewpilot\diff_parser.py reviewpilot\github_client.py reviewpilot\qwen_client.py reviewpilot\review_service.py reviewpilot\user_store.py
-```
-
-## 开发规范
-
-每个 PR 只做一个小功能，PR 描述需要包含：
-
-- 本次改了什么。
-- 为什么这样实现。
-- 如何测试。
-- 如果涉及界面变化，补充截图或示例输出。
-
-主分支应始终保持可运行状态，避免最后一天一次性提交所有代码。
+- 当前版本主要面向本地演示和评审场景，在线 Demo 地址待补充。
+- 免费模型 API 可能存在限流、排队或超时，需要准备备用 API Key。
+- 知识图谱目前是轻量级 Review 关系图，后续可继续增强跨文件依赖分析和测试影响分析。
+- 大型 PR 的分块分析、增量缓存和长上下文压缩仍有优化空间。
+- 后续可进一步接入 GitHub Review Comment API，实现从建议到 PR 评论的闭环。
