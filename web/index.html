@@ -22,7 +22,7 @@
           <button data-sidebar-key="summary" data-report-target="overview" data-icon="file-text" type="button">摘要</button>
           <button data-sidebar-key="audit" data-report-target="audit" data-icon="shield" type="button">审计</button>
           <button data-sidebar-key="ask" data-report-target="ask" data-icon="message" type="button">AI 问答</button>
-          <button data-sidebar-key="changed_files" data-report-target="code" data-icon="files" type="button">变更文件</button>
+          <button data-sidebar-key="changed_files" data-report-target="changed" data-icon="files" type="button">变更文件</button>
           <button data-sidebar-key="history" data-route="/history" data-icon="history" type="button">历史记录</button>
           <button data-sidebar-key="model_settings" data-route="/settings/models" data-icon="sliders" type="button">模型设置</button>
           <button data-sidebar-key="system_settings" data-route="/settings/rules" data-icon="settings" type="button">系统设置</button>
@@ -275,6 +275,7 @@
             <div class="report-tabs" id="reportTabs">
               <button class="active" data-report-tab="code" type="button">代码评审</button>
               <button data-report-tab="overview" type="button">摘要</button>
+              <button data-report-tab="changed" type="button">变更文件</button>
               <button data-report-tab="audit" type="button">审计</button>
               <button data-report-tab="ask" type="button">问答</button>
             </div>
@@ -292,9 +293,16 @@
                 <aside class="diff-sidebar">
                   <div class="diff-toolbar">
                     <label class="field">
-                      <span>搜索文件</span>
-                      <input id="fileSearchInput" placeholder="输入文件名或路径">
+                      <span>基于审计结果选择文件</span>
+                      <select id="reviewFileSelect"></select>
                     </label>
+                    <div class="filter-chips" id="fileFilterChips">
+                      <button class="active" data-file-filter="all" type="button">全部</button>
+                      <button data-file-filter="risk" type="button">有风险</button>
+                      <button data-file-filter="high" type="button">高风险</button>
+                      <button data-file-filter="deep" type="button">已深度分析</button>
+                      <button data-file-filter="low" type="button">低优先级</button>
+                    </div>
                     <label class="field hidden">
                       <span>文件排序</span>
                       <select id="fileSortMode">
@@ -303,8 +311,8 @@
                         <option value="order">按文件顺序</option>
                       </select>
                     </label>
-                    <label class="check-row"><input id="onlyRiskFiles" type="checkbox"> 只看有风险</label>
-                    <label class="check-row"><input id="onlyHighRisk" type="checkbox"> 只看中高风险</label>
+                    <label class="check-row hidden"><input id="onlyRiskFiles" type="checkbox"> 只看有风险</label>
+                    <label class="check-row hidden"><input id="onlyHighRisk" type="checkbox"> 只看中高风险</label>
                     <label class="check-row hidden"><input id="showRuleMarkers" type="checkbox" checked> 显示规则预检</label>
                     <label class="check-row hidden"><input id="showAuditNotes" type="checkbox" checked> 显示审计说明</label>
                   </div>
@@ -347,6 +355,46 @@
                   <div id="limitations" class="stack"></div>
                 </details>
               </div>
+            </div>
+            <div class="report-pane hidden" data-report-panel="changed">
+              <section class="changed-files-page">
+                <div class="section-head">
+                  <div>
+                    <h3>变更文件</h3>
+                    <p>查看本次 PR 改了哪些文件，以及系统如何判断文件优先级。</p>
+                  </div>
+                </div>
+                <div class="changed-file-filters">
+                  <input id="changedFileSearchInput" placeholder="筛选文件名或路径">
+                  <select id="changedStatusFilter">
+                    <option value="">全部状态</option>
+                    <option value="added">新增</option>
+                    <option value="modified">修改</option>
+                    <option value="removed">删除</option>
+                    <option value="renamed">重命名</option>
+                  </select>
+                  <select id="changedRiskFilter">
+                    <option value="">全部风险</option>
+                    <option value="high">高风险</option>
+                    <option value="medium">中风险</option>
+                    <option value="low">低风险</option>
+                  </select>
+                  <select id="changedDeepFilter">
+                    <option value="">全部分析状态</option>
+                    <option value="deep">已深度分析</option>
+                    <option value="base">基础检查</option>
+                  </select>
+                  <select id="changedTypeFilter">
+                    <option value="">全部类型</option>
+                    <option value="frontend">前端界面文件</option>
+                    <option value="config">配置文件</option>
+                    <option value="test">测试文件</option>
+                    <option value="lockfile">依赖锁定文件</option>
+                    <option value="general">普通配置/通用文件</option>
+                  </select>
+                </div>
+                <div id="changedFilesBox" class="changed-files-box"></div>
+              </section>
             </div>
             <div class="report-pane hidden" data-report-panel="audit">
               <p class="precheck-help">规则预检是在调用 AI 前，系统根据已启用的 Review 规则扫描出的候选关注点，不代表最终结论，AI 会结合 diff 证据进一步判断。</p>

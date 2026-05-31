@@ -100,12 +100,19 @@ const reviewerResultBox = document.querySelector("#reviewerResultBox");
 const auditorResultBox = document.querySelector("#auditorResultBox");
 const finalResultBox = document.querySelector("#finalResultBox");
 const fileSortMode = document.querySelector("#fileSortMode");
-const fileSearchInput = document.querySelector("#fileSearchInput");
+const reviewFileSelect = document.querySelector("#reviewFileSelect");
+const fileFilterChips = document.querySelector("#fileFilterChips");
 const onlyRiskFiles = document.querySelector("#onlyRiskFiles");
 const onlyHighRisk = document.querySelector("#onlyHighRisk");
 const showRuleMarkers = document.querySelector("#showRuleMarkers");
 const showAuditNotes = document.querySelector("#showAuditNotes");
 const changedFilesNav = document.querySelector("#changedFilesNav");
+const changedFilesBox = document.querySelector("#changedFilesBox");
+const changedFileSearchInput = document.querySelector("#changedFileSearchInput");
+const changedStatusFilter = document.querySelector("#changedStatusFilter");
+const changedRiskFilter = document.querySelector("#changedRiskFilter");
+const changedDeepFilter = document.querySelector("#changedDeepFilter");
+const changedTypeFilter = document.querySelector("#changedTypeFilter");
 const linkedRiskList = document.querySelector("#linkedRiskList");
 const diffFileHeader = document.querySelector("#diffFileHeader");
 const diffViewer = document.querySelector("#diffViewer");
@@ -200,6 +207,7 @@ let isDrawerOpen = false;
 let sidebarActiveKey = "code_review";
 let reportActiveTab = "code";
 let diffViewMode = "split";
+let codeFileFilter = "all";
 
 const reviewProgressStages = [
   {key: "fetch_pr", label: "获取 PR 信息"},
@@ -284,6 +292,11 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const looseReportTab = event.target.closest("[data-report-tab]");
+  if (looseReportTab && !looseReportTab.closest("#reportTabs")) {
+    setReportTab(looseReportTab.dataset.reportTab);
+    setSidebarActive(sidebarKeyForReportTab(looseReportTab.dataset.reportTab));
+  }
   const marker = event.target.closest("[data-annotation-key]");
   if (marker) {
     const key = marker.dataset.annotationKey;
@@ -318,6 +331,11 @@ document.addEventListener("click", (event) => {
   if (diffViewButton) {
     diffViewMode = diffViewButton.dataset.diffView;
     renderDiffReview(lastReport);
+  }
+  const missingReanalyze = event.target.closest("#missingDiffReanalyzeBtn");
+  if (missingReanalyze) {
+    isInputExpanded = true;
+    updateWorkbenchShellState();
   }
 });
 
@@ -554,7 +572,19 @@ reportTabs.addEventListener("click", (event) => {
   setSidebarActive(sidebarKeyForReportTab(button.dataset.reportTab));
 });
 fileSortMode.addEventListener("change", () => renderDiffReview(lastReport));
-fileSearchInput.addEventListener("input", () => renderDiffReview(lastReport));
+reviewFileSelect.addEventListener("change", () => {
+  activeDiffFile = reviewFileSelect.value;
+  renderDiffReview(lastReport);
+});
+fileFilterChips.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-file-filter]");
+  if (!button) return;
+  codeFileFilter = button.dataset.fileFilter;
+  fileFilterChips.querySelectorAll("[data-file-filter]").forEach(item => {
+    item.classList.toggle("active", item.dataset.fileFilter === codeFileFilter);
+  });
+  renderDiffReview(lastReport);
+});
 onlyRiskFiles.addEventListener("change", () => renderDiffReview(lastReport));
 onlyHighRisk.addEventListener("change", () => renderDiffReview(lastReport));
 showRuleMarkers.addEventListener("change", () => renderDiffReview(lastReport));
@@ -570,6 +600,10 @@ linkedRiskList.addEventListener("click", (event) => {
   const item = event.target.closest("[data-risk-jump]");
   if (!item) return;
   jumpToRiskElement(item);
+});
+[changedFileSearchInput, changedStatusFilter, changedRiskFilter, changedDeepFilter, changedTypeFilter].forEach(control => {
+  control?.addEventListener("input", () => renderChangedFilesPage(lastReport));
+  control?.addEventListener("change", () => renderChangedFilesPage(lastReport));
 });
 
 ruleForm.addEventListener("submit", async (event) => {
@@ -1302,6 +1336,7 @@ function renderReport(data) {
   limitationsBox.innerHTML = (data.limitations || []).length ? data.limitations.map(renderLimitation).join("") : empty("暂无额外限制说明");
   renderAuditReport(data);
   renderDiffReview(data);
+  renderChangedFilesPage(data);
   reviewAskThreadsState = data.ask_threads || [];
   renderAskPanel("review", data.history_id || "", reviewAskThreadsState);
   updateWorkbenchShellState();
@@ -1440,10 +1475,10 @@ function renderDiffReview(report, focusLine = 0) {
   const rules = report.rule_findings || [];
   const annotationIndex = buildLineAnnotations(report);
   if (!fileDiffs.length) {
-    changedFilesNav.innerHTML = empty("当前报告没有可展示的 diff。");
+    changedFilesNav.innerHTML = empty("当前报告没有可展示的代码 diff。");
     linkedRiskList.innerHTML = "";
     diffFileHeader.innerHTML = "";
-    diffViewer.innerHTML = empty("后端没有返回 file_diffs，无法展示代码变更视图。");
+    diffViewer.innerHTML = renderMissingDiffState();
     return;
   }
   const files = sortDiffFiles(fileDiffs.map((file, index) => ({
@@ -1455,17 +1490,13 @@ function renderDiffReview(report, focusLine = 0) {
     annotationsByLine: annotationIndex.byFile[file.filename] || {},
     fileLevelAnnotations: annotationIndex.fileLevel[file.filename] || [],
   })));
-  const visibleFiles = files.filter(file => {
-    const query = (fileSearchInput.value || "").trim().toLowerCase();
-    if (query && !file.filename.toLowerCase().includes(query)) return false;
-    if (onlyRiskFiles.checked && !file.risks.length) return false;
-    if (onlyHighRisk.checked && !file.risks.some(item => ["high", "medium"].includes(item.risk_level))) return false;
-    return true;
-  });
+  const visibleFiles = files.filter(file => matchesCodeFileFilter(file, report));
   const firstFile = visibleFiles[0] || files[0];
   if (!activeDiffFile || !files.some(file => file.filename === activeDiffFile)) activeDiffFile = firstFile?.filename || "";
+  if (!visibleFiles.some(file => file.filename === activeDiffFile)) activeDiffFile = firstFile?.filename || "";
   const current = files.find(file => file.filename === activeDiffFile) || firstFile;
-  changedFilesNav.innerHTML = visibleFiles.length ? renderGroupedFileNav(visibleFiles) : empty("没有符合筛选条件的文件。");
+  renderReviewFileSelector(visibleFiles, files);
+  changedFilesNav.innerHTML = visibleFiles.length ? renderGroupedFileNav(visibleFiles) : empty("没有匹配的文件。");
   linkedRiskList.innerHTML = risks.length ? risks.map(renderLinkedRiskItem).join("") : "";
   if (!current) {
     diffFileHeader.innerHTML = "";
@@ -1482,6 +1513,43 @@ function renderDiffReview(report, focusLine = 0) {
       setTimeout(() => target.classList.remove("line-focus"), 1600);
     }
   }
+}
+
+function matchesCodeFileFilter(file, report) {
+  const score = Number(file.change.risk_score || 0);
+  const hasRisk = file.risks.length > 0;
+  if (codeFileFilter === "risk") return hasRisk;
+  if (codeFileFilter === "high") return file.risks.some(item => item.risk_level === "high") || score >= 70;
+  if (codeFileFilter === "deep") return isDeepAnalyzed(file.change.filename ? file.change : file, report);
+  if (codeFileFilter === "low") return isLowPriorityFile(file.filename) || score < 30 && !hasRisk;
+  return true;
+}
+
+function renderReviewFileSelector(visibleFiles, allFiles) {
+  if (!reviewFileSelect) return;
+  const files = visibleFiles.length ? visibleFiles : allFiles;
+  reviewFileSelect.innerHTML = files.map(file => {
+    const parts = splitFilePath(file.filename);
+    const score = Number(file.change.risk_score || 0);
+    const risk = riskScoreText(score).label;
+    const riskCount = file.risks.length;
+    const label = `${parts.name} · ${parts.dir || "."} · ${risk} · ${riskCount} 条风险`;
+    return `<option value="${escapeHtmlAttr(file.filename)}">${escapeHtml(label)}</option>`;
+  }).join("");
+  reviewFileSelect.value = activeDiffFile;
+}
+
+function renderMissingDiffState() {
+  return `<section class="missing-diff-state">
+    <h3>当前报告没有可展示的代码 diff。</h3>
+    <p>可能是因为本次分析使用了旧版历史记录，或后端没有保存文件级 diff。你可以重新分析该 PR，或查看摘要和审计结果。</p>
+    <div class="inline-actions">
+      <button id="missingDiffReanalyzeBtn" type="button">重新分析</button>
+      <button data-report-tab="overview" type="button">查看摘要</button>
+      <button data-report-tab="audit" type="button">查看审计</button>
+    </div>
+    <details class="tech-details"><summary>查看技术细节</summary><p>file_diffs missing</p></details>
+  </section>`;
 }
 
 function sortDiffFiles(files) {
@@ -1984,6 +2052,75 @@ function renderFileStatsTable(files, report) {
   </div>`;
 }
 
+function renderChangedFilesPage(report) {
+  if (!changedFilesBox || !report) return;
+  const fileChanges = report.file_changes || report.files || [];
+  const priority = report.priority_files || report.risk_ranking || [];
+  const diffs = report.file_diffs || [];
+  const query = (changedFileSearchInput?.value || "").trim().toLowerCase();
+  const status = changedStatusFilter?.value || "";
+  const riskLevel = changedRiskFilter?.value || "";
+  const deepFilter = changedDeepFilter?.value || "";
+  const typeFilter = changedTypeFilter?.value || "";
+  const rows = fileChanges.map(file => {
+    const ranked = priority.find(item => item.filename === file.filename) || file;
+    const diff = diffs.find(item => item.filename === file.filename) || {};
+    const score = Number(ranked.risk_score || ranked.priority || file.risk_score || 0);
+    const risk = riskScoreText(score);
+    return {
+      ...file,
+      ranked,
+      diff,
+      score,
+      risk,
+      parts: splitFilePath(file.filename || file.path || ""),
+      category: file.category || ranked.category || "general",
+      deep: isDeepAnalyzed(file, report),
+    };
+  }).filter(file => {
+    const fullName = `${file.filename || ""} ${file.path || ""}`.toLowerCase();
+    if (query && !fullName.includes(query)) return false;
+    if (status && file.status !== status && !(status === "removed" && file.status === "deleted")) return false;
+    if (riskLevel && file.risk.className !== riskLevel) return false;
+    if (deepFilter === "deep" && !file.deep) return false;
+    if (deepFilter === "base" && file.deep) return false;
+    if (typeFilter && file.category !== typeFilter) return false;
+    return true;
+  });
+  if (!fileChanges.length) {
+    changedFilesBox.innerHTML = empty("当前报告没有文件变更统计。");
+    return;
+  }
+  if (!rows.length) {
+    changedFilesBox.innerHTML = empty("没有匹配的文件。");
+    return;
+  }
+  changedFilesBox.innerHTML = `<div class="changed-files-table">
+    <div class="changed-file-row changed-file-head">
+      <span>文件</span><span>状态</span><span>类型</span><span>风险</span><span>风险分</span><span>新增 / 删除</span><span>分析</span><span>操作</span>
+    </div>
+    ${rows.map(file => renderChangedFileRow(file)).join("")}
+  </div>`;
+}
+
+function renderChangedFileRow(file) {
+  const patch = file.diff.patch || file.diff.raw_patch || "";
+  const patchSummary = patch ? patch.split("\n").slice(0, 12).join("\n") : "当前报告没有保存该文件的 patch 摘要。";
+  return `<details class="changed-file-row-wrap">
+    <summary class="changed-file-row">
+      <span class="changed-file-name"><strong>${escapeHtml(file.parts.name)}</strong><small>${escapeHtml(file.parts.dir || ".")}</small></span>
+      <span><span class="badge ${statusText(file.status).className}">${escapeHtml(statusText(file.status).label)}</span></span>
+      <span>${escapeHtml(categoryText(file.category))}</span>
+      <span><span class="badge ${file.risk.className}">${escapeHtml(file.risk.label)}</span></span>
+      <span>${file.score}</span>
+      <span>+${Number(file.additions || 0)} / -${Number(file.deletions || 0)}</span>
+      <span>${file.deep ? "已深度分析" : "基础检查"}</span>
+      <span><button type="button" class="copy-btn" data-priority-file="${escapeHtmlAttr(file.filename)}">定位到代码评审</button></span>
+    </summary>
+    <pre class="patch-preview">${escapeHtml(patchSummary)}</pre>
+  </details>`;
+}
+
 function renderPriorityTable(files) {
   return `<div class="data-table file-table">
     <div class="table-row table-head">
@@ -2327,6 +2464,7 @@ function setReportTab(tab) {
   document.querySelectorAll("[data-report-panel]").forEach(panel => {
     panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
   });
+  if (tab === "changed") renderChangedFilesPage(lastReport);
 }
 
 function setSidebarActive(key) {
@@ -2350,6 +2488,7 @@ function sidebarKeyForRoute(route) {
 function sidebarKeyForReportTab(tab) {
   const map = {
     code: "code_review",
+    changed: "changed_files",
     overview: "summary",
     audit: "audit",
     ask: "ask",
@@ -2550,6 +2689,7 @@ function statusText(status) {
     added: {label: "新增", className: "low"},
     modified: {label: "修改", className: "medium"},
     deleted: {label: "删除", className: "high"},
+    removed: {label: "删除", className: "high"},
     renamed: {label: "重命名", className: "medium"},
   };
   return map[status] || {label: status || "修改", className: "medium"};
