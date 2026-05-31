@@ -3739,6 +3739,89 @@ textarea {
   pointer-events: none;
 }
 
+.diff-review-shell {
+  grid-template-columns: 232px minmax(0, 1fr) 0 !important;
+}
+
+.workspace.drawer-open .diff-review-shell {
+  grid-template-columns: 232px minmax(0, 1fr) 360px !important;
+}
+
+.diff-sidebar {
+  width: 232px;
+  min-width: 0;
+}
+
+.file-group-title {
+  padding: 8px 10px;
+}
+
+.file-nav-item {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  grid-template-columns: none !important;
+  grid-template-areas: none !important;
+  gap: 8px;
+  min-height: 44px !important;
+  height: 44px;
+  padding: 0 12px !important;
+}
+
+.file-nav-item .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.file-nav-item .badge {
+  flex: 0 0 auto;
+  max-width: 72px;
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.filter-chips {
+  gap: 6px;
+}
+
+.filter-chips button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.report-pane[data-report-panel="code"] > .issues-section {
+  display: none !important;
+}
+
+.segmented-control button[data-open-issues] {
+  margin-left: 8px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(37, 99, 235, 0.16);
+  color: #bfdbfe;
+}
+
+.issues-drawer .drawer-scroll {
+  padding-bottom: 16px;
+}
+
+.issues-drawer .compact-issue-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+}
+
+.file-ask-context .drawer-evidence {
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1280px) {
   .feature-intro-grid,
   .result-visual-grid,

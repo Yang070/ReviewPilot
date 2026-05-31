@@ -306,6 +306,13 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const fileAsk = event.target.closest("[data-file-ask-question]");
+  if (fileAsk) {
+    const question = fileAsk.dataset.fileAskQuestion || "";
+    const context = buildCurrentFileAskContext();
+    goToAskPRWithQuestion(question, context);
+    return;
+  }
   const askSuggestion = event.target.closest("[data-ask-suggestion]");
   if (askSuggestion) fillAskQuestion(askSuggestion.dataset.askScope, askSuggestion.dataset.askSuggestion);
   const riskAsk = event.target.closest("[data-risk-ask]");
@@ -352,6 +359,10 @@ document.addEventListener("click", (event) => {
   if (diffViewButton) {
     diffViewMode = diffViewButton.dataset.diffView;
     renderDiffReview(lastReport);
+  }
+  const openIssues = event.target.closest("[data-open-issues]");
+  if (openIssues) {
+    renderIssuesDrawer();
   }
   const missingReanalyze = event.target.closest("#missingDiffReanalyzeBtn");
   if (missingReanalyze) {
@@ -1620,6 +1631,78 @@ function fillAskQuestion(scope, question) {
   refs.question.focus();
 }
 
+function buildFileAskQuestion(question, file) {
+  const name = splitFilePath(file?.filename || activeDiffFile || "").name || "当前文件";
+  const score = Number(file?.change?.risk_score || 0);
+  const risk = riskScoreText(score).label || "当前风险等级";
+  if (question.includes("为什么")) {
+    return `请解释 ${name} 为什么被判为${risk}？请结合当前 PR 的 diff、规则预检和审计结论说明。`;
+  }
+  if (question.includes("人工")) {
+    return `请说明 ${name} 最需要人工确认的地方是什么？请结合相关风险、规则预检和审计结论回答。`;
+  }
+  if (question.includes("测试")) {
+    return `请分析 ${name} 是否存在测试覆盖不足的问题？请只基于当前 PR 报告和 diff 上下文回答。`;
+  }
+  if (question.includes("忽略")) {
+    return `请判断 ${name} 相关提示中哪些可能可以忽略，哪些仍需要人工复核？请说明依据。`;
+  }
+  return `${question} 请结合 ${name} 在当前 PR 中的 diff、风险和规则预检说明。`;
+}
+
+function buildCurrentFileAskContext() {
+  const filename = activeDiffFile || "";
+  const fileDiff = (lastReport?.file_diffs || []).find(item => item.filename === filename) || {};
+  const fileChange = (lastReport?.file_changes || []).find(item => item.filename === filename) || {};
+  const file = {...fileDiff, ...fileChange, filename};
+  const path = splitFilePath(filename);
+  const risks = getReportRisks(lastReport).filter(item => item.file === filename);
+  const rules = (lastReport?.rule_findings || []).filter(item => item.file === filename);
+  const score = Number(fileChange.risk_score || 0);
+  const firstLines = (fileDiff.parsed_lines || [])
+    .filter(line => line.type === "add" || line.type === "delete")
+    .slice(0, 4)
+    .map(line => `${line.type === "add" ? "+" : "-"} ${line.content}`)
+    .join("\n");
+  return {
+    filename,
+    name: path.name || filename || "当前文件",
+    dir: path.dir || ".",
+    status: statusText(file.status || fileChange.status || "modified").label,
+    riskLabel: riskScoreText(score).label,
+    additions: Number(file.additions || fileChange.additions || 0),
+    deletions: Number(file.deletions || fileChange.deletions || 0),
+    risks,
+    rules,
+    diffSummary: firstLines,
+  };
+}
+
+function goToAskPRWithQuestion(question, context) {
+  if (!question) return;
+  navigate("/review");
+  setSidebarActive("ask");
+  setReportTab("ask");
+  fillAskQuestion("review", question);
+  if (reviewAskContext && context) {
+    reviewAskContext.innerHTML = renderFileAskContext(context);
+  }
+}
+
+function renderFileAskContext(context) {
+  const riskTitles = (context.risks || []).slice(0, 3).map(item => item.issue || item.id || "相关风险");
+  const ruleTitles = (context.rules || []).slice(0, 3).map(item => item.name || item.rule_name || item.rule_id || "规则预检");
+  return `<div class="ask-context-block file-ask-context">
+    <h3>当前文件上下文</h3>
+    <p><strong>文件</strong>${escapeHtml(context.name)}</p>
+    <p><strong>路径</strong>${escapeHtml(context.dir)}</p>
+    <p><strong>状态</strong>${escapeHtml(context.status)} · ${escapeHtml(context.riskLabel)} · +${context.additions} / -${context.deletions}</p>
+    <p><strong>相关风险</strong>${escapeHtml(riskTitles.length ? riskTitles.join("；") : "当前文件没有明确风险")}</p>
+    <p><strong>规则预检</strong>${escapeHtml(ruleTitles.length ? ruleTitles.join("；") : "当前文件没有命中规则预检")}</p>
+    ${context.diffSummary ? `<pre class="drawer-evidence">${escapeHtml(context.diffSummary)}</pre>` : ""}
+  </div>`;
+}
+
 function renderAskThread(item) {
   const confidence = Number(item.confidence || 0);
   const files = item.related_files || [];
@@ -1841,12 +1924,9 @@ function renderChangedFileNavItem(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const pathParts = splitFilePath(file.filename);
-  const muted = !file.risks.length ? "muted-file" : "";
-  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}">
-    <span class="file-icon">${renderIcon(fileIconName(file.filename))}</span>
+  return `<button class="file-nav-item ${file.filename === activeDiffFile ? "active" : ""}" type="button" data-diff-file="${escapeHtmlAttr(file.filename)}" title="${escapeHtmlAttr(file.filename)}">
     <span class="file-name">${escapeHtml(pathParts.name)}</span>
-    <small class="file-path">${escapeHtml(pathParts.dir || ".")}</small>
-    <span class="file-meta ${muted}"><span class="badge ${risk.className}">${risk.label}</span><span>${file.risks.length} 条</span><span>+${file.additions} / -${file.deletions}</span></span>
+    <span class="badge ${risk.className}">${risk.label}</span>
   </button>`;
 }
 
@@ -1879,8 +1959,9 @@ function renderDiffFileHeader(file) {
   const score = Number(file.change.risk_score || 0);
   const risk = riskScoreText(score);
   const reasons = (file.change.risk_reasons || []).join("；") || "普通变更文件";
+  const issueCount = getReportRisks(lastReport).length;
   const buttons = fileAskSuggestions.map(question =>
-    `<button class="copy-btn" type="button" data-ask-scope="review" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
+    `<button class="copy-btn" type="button" data-file-ask-question="${escapeHtmlAttr(buildFileAskQuestion(question, file))}">${escapeHtml(question)}</button>`
   ).join("");
   return `<div>
     <div class="diff-title-row">
@@ -1888,7 +1969,7 @@ function renderDiffFileHeader(file) {
         <h3>${escapeHtml(splitFilePath(file.filename).name)}</h3>
         <p>${escapeHtml(splitFilePath(file.filename).dir || ".")} · ${statusText(file.status).label} · ${risk.label} · +${file.additions} / -${file.deletions}</p>
       </div>
-      <div class="segmented-control"><button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button><button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button><button type="button">${renderIcon("settings")}</button></div>
+      <div class="segmented-control"><button type="button" data-diff-view="split" class="${diffViewMode === "split" ? "active" : ""}">Split</button><button type="button" data-diff-view="unified" class="${diffViewMode === "unified" ? "active" : ""}">Unified</button>${issueCount ? `<button type="button" data-open-issues>AI 发现 ${issueCount} 个问题</button>` : ""}</div>
     </div>
     <p class="diff-hint">${file.risks.length ? `这个文件有 ${file.risks.length} 条 AI 批注，点击代码行右侧的标记查看详情。` : "这个文件没有发现明确风险，仅显示代码变更。"}</p>
     <p class="file-focus-reason">${escapeHtml(fileFocusText(file.change, reasons))}</p>
@@ -2149,6 +2230,29 @@ function renderRiskDetailDrawer(annotation) {
     <div class="drawer-actions">
       <button class="copy-btn" type="button" data-copy="${escapeHtmlAttr(annotation.copyable_comment || annotation.suggestion)}">复制 Review Comment</button>
       <button class="copy-btn" type="button" data-risk-ask="${escapeHtmlAttr(annotation.id)}">Ask PR 追问</button>
+    </div>
+  </section>`;
+}
+
+function renderIssuesDrawer() {
+  if (!riskDetailDrawer) return;
+  const risks = getReportRisks(lastReport);
+  isDrawerOpen = true;
+  updateWorkbenchShellState();
+  riskDetailDrawer.innerHTML = `<section class="drawer-card issues-drawer">
+    <div class="drawer-head">
+      <div>
+        <span class="badge info">AI 问题</span>
+        <small>共 ${risks.length} 个</small>
+      </div>
+      <button class="icon-button" type="button" data-close-drawer>×</button>
+    </div>
+    <div class="drawer-scroll">
+      <h3>AI 发现的问题</h3>
+      <p class="muted">点击问题后会定位到对应文件和代码行；如果暂时没有行号，会打开文件级提示。</p>
+      <div class="issue-list compact-issue-list">
+        ${risks.length ? risks.map(renderIssueRow).join("") : empty("当前没有发现明确风险。")}
+      </div>
     </div>
   </section>`;
 }
