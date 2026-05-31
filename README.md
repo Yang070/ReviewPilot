@@ -1,161 +1,93 @@
 # ReviewPilot
 
-ReviewPilot 是一个 AI Pull Request 代码评审助手。用户可以输入公开 GitHub PR 链接，或直接粘贴 unified diff。系统会解析代码变更、构建证据链，并调用千问生成中文 Review 报告。
+## 1. 项目简介
 
-## 功能
+ReviewPilot 是一个面向 Pull Request 的 AI 代码评审助手，帮助开发者在提交代码后快速理解变更内容、定位高风险文件，并生成可复核的 Review 建议。
 
-- 支持注册和登录。
-- 注册时保存用户账号、密码和千问 API Key。
-- 登录后自动使用该账号保存的 API Key，不需要每次在命令行输入。
-- 支持在设置中修改千问 API Key 和默认模型。
-- 每次评审可以选择模型：`qwen-plus`、`qwen-plus-2025-07-28`、`qwen-long`、`qwen-max` 或自定义模型名。
-- 支持无需登录 GitHub 获取公开 PR 的 diff。
-- 支持直接粘贴 unified diff 进行分析。
-- 解析变更文件、hunk、新增行和删除行。
-- 为每个变更文件计算 `risk_score`，展示 Risk-Aware File Ranking。
-- 根据风险分选择上下文，高风险文件保留更多 patch，低风险文件只保留摘要。
-- 内置规则检测：路由兜底、异步错误处理、Provider 包裹、删除/重命名引用同步、依赖 lock 同步。
-- 从代码变更和规则检测中抽取证据链。
-- 要求每条 Review 建议包含文件、证据、风险等级、置信度和修改建议。
+项目支持 **GitHub PR 链接评审**、**粘贴 unified diff**、**上传 .diff / .patch 文件**，并结合风险感知分析、规则预检、Reviewer / Auditor 双模型审计、Ask PR 交互式追问和可视化审查界面，形成从输入、分析、复核到报告导出的完整 PR Review 流程。
 
-## 项目文档
+## 2. Demo 链接
 
-- [需求文档](docs/需求文档.md)
-- [接口文档](docs/接口文档.md)
-- [Demo 样例文档](docs/Demo样例文档.md)
-- [赛题对齐说明](docs/赛题对齐说明.md)
-- [提交与 PR 规范](docs/提交与PR规范.md)
-- [架构设计](docs/architecture.md)
+## Demo
 
-## 本地运行
+- 演示视频：待补充
 
-启动本地服务：
+## 3. 项目亮点 / 原创功能
+
+ReviewPilot 不只是把 diff 直接交给大模型生成评论，而是在模型调用前增加了一层可解释的 Review 策略。
+
+- **风险感知文件排序**：根据文件类型、路径关键词、变更规模、文件状态等因素计算风险分，优先分析更可能影响业务逻辑的文件。
+- **可配置规则预检**：在调用 AI 前先执行规则扫描，把异步错误处理、路由兜底、权限检查、依赖同步等候选问题结构化输出。
+- **Reviewer-Auditor 双模型审计**：Reviewer 负责初步评审，Auditor 负责复核证据、误报、漏报和置信度，降低单模型输出的不确定性。
+- **Ask PR 交互式追问**：完成评审后，用户可以围绕当前报告继续追问风险原因、测试覆盖和人工复核重点。
+- **历史记录与报告导出**：每次分析会保存历史记录，并支持导出 Markdown 报告。
+- **多模型 / API Key 配置中心**：支持 OpenAI-Compatible 接口，可配置 Qwen、DeepSeek、OpenAI 等不同模型。
+
+项目的算法亮点是 **基于知识图谱式提示链的风险感知 PR Review 策略层**。
+
+它借鉴 KnowGPT 中“先构建知识结构，再引导大模型推理”的思想：系统不会直接把完整 diff 丢给大模型，而是先把 PR 信息结构化成一张 **Review Knowledge Graph / Review 关系图**。图中的节点包括 PR 概览、文件变更、文件风险分、规则预检结果、重点文件、上下文覆盖、Reviewer 风险和 Auditor 审计结论。随后，Reviewer 和 Auditor 会基于这张结构化关系图进行两阶段推理，从而减少普通 LLM 直接读 diff 时容易出现的误报、漏报和幻觉问题。
+
+## 4. 依赖说明
+
+- **前端**：HTML / CSS / JavaScript，实现暗色 AI PR Review 工作台、Diff 视图、报告展示、Ask PR 聊天界面。
+- **后端**：Python 本地服务，负责用户数据、模型配置、PR 获取、diff 解析和 Review 流程调度。
+- **模型调用**：支持 OpenAI 兼容接口，可接入 Qwen、DeepSeek、OpenAI 等模型服务。
+- **其他能力**：GitHub PR 获取、unified diff 解析、本地 JSON 存储、Markdown 报告导出。
+
+其中，风险评分逻辑、规则预检、双模型审计流程、Ask PR 报告内追问和前端可视化评审工作台均为项目自主实现，不是单纯的大模型接口套壳。
+
+## 5. 核心功能
+
+- 支持 GitHub PR URL、粘贴 diff、上传 .diff / .patch 三种输入方式。
+- 自动生成 PR 概览、核心指标和重点变更摘要。
+- 根据风险分选择重点上下文，并生成文件风险排序。
+- 在 AI 分析前执行规则预检，输出候选风险提示。
+- 支持 Reviewer 初审与 Auditor 复核，区分高可信风险、潜在风险和需要人工复核的问题。
+- 提供 Diff 级代码审查界面，并生成可复制的 Review Comment。
+- 支持 Ask PR 交互式问答，围绕当前报告继续追问。
+- 保存历史记录，并支持 Markdown 报告导出。
+
+## 6. 项目架构
+
+![ReviewPilot 项目架构图](docs/reviewpilot_项目架构图解析.png)
+
+系统整体由 **输入层**、**风险感知 / 策略层**、**双模型推理层** 和 **交互展示层** 组成。输入层接收 PR URL、diff 或 patch 文件；策略层完成 PR / diff 解析、文件风险评分、规则预检和上下文选择；双模型推理层通过 Reviewer 与 Auditor 进行初审和复核；交互展示层负责可视化评估结果、代码评审、历史记录、Ask PR 和报告导出。
+
+## 7. 使用方式
+
+本项目为本地运行版本，主要依赖 Python 运行环境和浏览器。若后续仓库提供 `requirements.txt`，可先执行依赖安装；当前版本可直接启动本地服务：
 
 ```powershell
 python server.py
 ```
 
-打开浏览器访问：
+启动后打开：
 
 ```text
 http://127.0.0.1:8770
 ```
 
-可选环境变量：
+基本流程：
 
-```text
-REVIEWPILOT_PORT=8770
-```
+1. 注册或登录账号。
+2. 在模型设置中配置 API Key 和模型名称。
+3. 选择输入方式：GitHub PR URL、粘贴 unified diff 或上传 .diff / .patch 文件。
+4. 选择模型与分析模式：快速分析或深度审计。
+5. 点击开始评审，查看评估结果、代码审查、审计结论和 Review Comments。
 
-## 使用方式
+## 8. 当前限制和未来优化
 
-首次使用需要注册：
+当前限制：
 
-1. 输入账号。
-2. 输入密码。
-3. 填写千问 API Key。
-4. 设置默认模型，例如 `qwen-plus`。
+- 目前主要适配公开 PR / 标准 diff 输入。
+- 大模型分析结果仍需人工 Reviewer 复核。
+- 某些复杂仓库的上下文获取仍有限。
+- UI 和交互细节仍在持续优化中。
 
-之后直接登录即可，不需要再输入 API Key。如果 API Key 变化，可以在右上角“设置”中修改。
+未来优化：
 
-评审时任选一种输入方式：
-
-- 输入公开 GitHub PR 链接，例如 `https://github.com/owner/repo/pull/1`。
-- 粘贴 unified diff。
-
-然后选择本次使用的大语言模型并点击“开始评审”。
-
-## 设计思路
-
-项目采用“证据优先”的流程：
-
-```text
-PR 链接或 diff
--> diff 解析器
--> 文件风险评分
--> 规则检测
--> 风险感知上下文选择
--> 千问 Review Provider
--> 证据校验
--> Review 报告
-```
-
-模型只能基于提供的 diff、风险排序、规则检测和证据列表分析，不能凭空编造文件、函数、接口或数据库表。后端会过滤没有引用变更文件或具体证据的 Review 建议。
-
-## 规则预检
-
-ReviewPilot 在调用 AI 前会先执行已启用的 Review 规则。规则预检只扫描新增代码行，命中结果是候选关注点，不代表最终结论。AI 会结合 diff 证据进一步判断是否采纳、降级为待确认或忽略。
-
-规则支持在页面中管理：
-
-- 启用或禁用规则。
-- 新增、编辑、删除规则。
-- 从模板复制规则。
-- 配置适用文件、触发关键词、排除关键词、风险等级、命中提示和建议动作。
-
-内置模板包括 React Router 兜底路由、异步错误处理、Context Provider、删除或重命名文件引用、package.json 与 lock 文件同步、表单校验、后端接口权限和环境变量泄露检查。
-
-## 双模型审计机制
-
-单模型 AI Review 容易出现两类问题：一是误报，把没有足够证据的问题说得过于确定；二是漏报，忽略规则预检或高风险文件中的候选风险。因此 ReviewPilot 增加了 Reviewer-Auditor Review Pipeline。
-
-- Reviewer Model 负责初步发现风险、总结变更和生成 Review Comments。
-- Auditor Model 不重新写完整 Review，只审计 Reviewer 输出，检查证据是否充分、是否过度推断、是否遗漏规则预检命中项、风险等级和置信度是否合理。
-- Auditor 不能完全消除误报和漏报，它只是第二层辅助校验，用来降低单模型输出的不确定性。
-- 融合逻辑会保留证据充分的风险；将证据不足或置信度低的风险降级为 `needs_human_check`；将明显误检移入 `dismissed_risks`；Auditor 补充的漏检候选默认作为 `potential_risk` 或 `needs_human_check`，不直接认定为确定 bug。
-
-这个机制让用户看到“初审结果、审计结果、最终融合结果”，更接近真实代码评审中的二次复核流程。
-
-深度审计接口示例：
-
-```http
-POST /api/review/deep-audit
-Content-Type: application/json
-Authorization: Bearer <登录后的 token>
-```
-
-```json
-{
-  "pr_url": "https://github.com/owner/repo/pull/1",
-  "diff_text": "",
-  "reviewer_model_config_id": "model_xxx",
-  "auditor_model_config_id": "model_yyy",
-  "rule_set_id": "default",
-  "analysis_mode": "deep_audit"
-}
-```
-
-## Ask PR 交互追问
-
-完成一次 Review 后，用户可以在报告页或历史详情页继续追问当前 PR。Ask PR 不会重新抓取 GitHub PR，也不会修改原始 Review 报告，只会读取该历史记录中已经保存的上下文：
-
-- PR 概览、文件变更、重点分析文件和上下文覆盖范围。
-- 规则预检结果、初审模型结果、审计模型结果。
-- 最终总结、主要变更模块、最终风险和 Review Comments。
-
-Ask PR 的回答必须基于已有报告。如果上下文不足，系统会明确提示“当前上下文无法确认”，并给出需要人工复核的说明。每次追问会保存到对应历史记录的 `ask_threads` 中，方便后续复盘。
-
-## 数据与安全说明
-
-- 用户数据保存在本地 `data/users.json`。
-- 密码不会明文保存，只保存加盐哈希。
-- 千问 API Key 使用本地服务密钥加密保存。
-- `data/users.json` 和 `data/app_secret.key` 已加入 `.gitignore`，不会提交到 GitHub。
-
-## 验证命令
-
-```powershell
-python -m unittest discover -s tests
-python -m py_compile server.py reviewpilot\diff_parser.py reviewpilot\github_client.py reviewpilot\qwen_client.py reviewpilot\review_service.py reviewpilot\user_store.py
-```
-
-## 开发规范
-
-每个 PR 只做一个小功能，PR 描述需要包含：
-
-- 本次改了什么。
-- 为什么这样实现。
-- 如何测试。
-- 如果涉及界面变化，补充截图或示例输出。
-
-主分支应始终保持可运行状态，避免最后一天一次性提交所有代码。
+- 更完整的 GitHub / GitLab 集成。
+- 更细粒度的规则体系。
+- 更稳定的多模型协同策略。
+- 更完善的报告导出与团队协作能力。
+- 更强的上下文检索与代码库级理解能力。
