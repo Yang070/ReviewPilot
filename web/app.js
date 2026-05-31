@@ -91,6 +91,7 @@ const priorityFilesBox = document.querySelector("#priorityFiles");
 const ruleFindingsBox = document.querySelector("#ruleFindings");
 const modulesBox = document.querySelector("#modules");
 const risksBox = document.querySelector("#risks");
+const riskOverviewBox = document.querySelector("#riskOverviewBox");
 const commentsBox = document.querySelector("#comments");
 const limitationsBox = document.querySelector("#limitations");
 const copySummaryBtn = document.querySelector("#copySummaryBtn");
@@ -204,10 +205,18 @@ let selectedAnnotation = null;
 let hasReport = false;
 let isInputExpanded = true;
 let isDrawerOpen = false;
-let sidebarActiveKey = "code_review";
-let reportActiveTab = "code";
+let sidebarActiveKey = "result_visualization";
+let reportActiveTab = "result";
 let diffViewMode = "split";
 let codeFileFilter = "all";
+let lastReviewInput = {
+  sourceType: "url",
+  prUrl: "",
+  pastedDiff: "",
+  uploadedPatchName: "",
+  model: "",
+  analysisMode: "fast",
+};
 
 const reviewProgressStages = [
   {key: "fetch_pr", label: "获取 PR 信息"},
@@ -262,6 +271,8 @@ const fileAskSuggestions = [
   "当前文件有没有测试覆盖不足？",
   "这些提示哪些可以忽略？",
 ];
+
+document.querySelector('[data-sidebar-key="summary"]')?.remove();
 
 document.addEventListener("click", (event) => {
   const routeButton = event.target.closest("[data-route]");
@@ -456,6 +467,10 @@ reviewBtn.addEventListener("click", async () => {
     navigate("/settings/models");
     return;
   }
+  if (hasReport && !window.confirm("重新评审会覆盖当前页面展示结果，但历史记录仍会保留。是否继续？")) {
+    return;
+  }
+  lastReviewInput = readLastReviewInput();
   startProgress("正在评审", "正在解析输入和构建风险感知上下文...");
   reviewBtn.disabled = true;
   try {
@@ -468,6 +483,11 @@ reviewBtn.addEventListener("click", async () => {
     finishProgress("评审完成", "报告已生成，并已保存到历史记录。");
   } catch (err) {
     stopProgress();
+    if (!lastReport) {
+      hasReport = false;
+      renderFeatureIntro(reportActiveTab);
+      updateWorkbenchShellState();
+    }
     showError(err);
   } finally {
     reviewBtn.disabled = false;
@@ -513,9 +533,9 @@ resetModelFormBtn.addEventListener("click", resetModelForm);
 copySummaryBtn.addEventListener("click", async () => copyText(lastSummary, "摘要已复制。"));
 exportMarkdownBtn.addEventListener("click", () => downloadMarkdownReport(lastReport));
 reanalyzeBtn.addEventListener("click", () => {
-  isInputExpanded = true;
+  isInputExpanded = hasReport ? !isInputExpanded : true;
   updateWorkbenchShellState();
-  reviewBtn.scrollIntoView({behavior: "smooth", block: "center"});
+  if (isInputExpanded) reviewBtn.scrollIntoView({behavior: "smooth", block: "center"});
 });
 
 quickProvider.addEventListener("change", () => {
@@ -776,6 +796,7 @@ async function route() {
   if (path === "/review") {
     await loadModelConfigs();
     await loadRules();
+    if (!hasReport) renderFeatureIntro(reportActiveTab);
   }
 }
 
@@ -791,6 +812,17 @@ function setInputTab(tab) {
   document.querySelector("#urlInputPane").classList.toggle("hidden", tab !== "url");
   document.querySelector("#diffInputPane").classList.toggle("hidden", tab !== "diff");
   document.querySelector("#fileInputPane").classList.toggle("hidden", tab !== "file");
+}
+
+function readLastReviewInput() {
+  return {
+    sourceType: activeInputTab,
+    prUrl: prUrl.value.trim(),
+    pastedDiff: diffInput.value,
+    uploadedPatchName: patchFile.files?.[0]?.name || lastReviewInput.uploadedPatchName || "",
+    model: modelConfigSelect.value,
+    analysisMode: analysisMode.value,
+  };
 }
 
 async function buildReviewPayload() {
@@ -1176,6 +1208,98 @@ function updateWorkbenchShellState() {
   reviewView.classList.toggle("has-report", hasReport);
   reviewView.classList.toggle("input-expanded", isInputExpanded || !hasReport);
   reviewView.classList.toggle("drawer-open", isDrawerOpen);
+  if (reanalyzeBtn) reanalyzeBtn.textContent = hasReport && isInputExpanded ? "收起输入区" : "更换 PR / 新建评审";
+}
+
+function renderFeatureIntro(tab = reportActiveTab) {
+  if (!emptyReport || hasReport) return;
+  const config = featureIntroConfig(tab);
+  emptyReport.classList.remove("hidden");
+  reportContent.classList.add("hidden");
+  emptyReport.innerHTML = renderFeatureIntroPanel(config);
+}
+
+function featureIntroConfig(tab) {
+  const configs = {
+    result: {
+      title: "评估结果",
+      description: "分析完成后，这里会展示 PR 的核心指标、质量雷达图、主要变更和风险概览。",
+      features: [
+        {icon: "layout", title: "核心指标", description: "快速了解文件数、新增/删除行、风险数和综合评分。"},
+        {icon: "chip", title: "质量雷达图", description: "从质量、风险、安全、维护性和测试覆盖多个维度看整体状态。"},
+        {icon: "file-text", title: "主要更改", description: "总结本次 PR 的业务和结构变化。"},
+        {icon: "alert", title: "风险概览", description: "按风险等级和人工确认状态聚合展示。"},
+      ],
+    },
+    code: {
+      title: "代码评审",
+      description: "分析完成后，这里会展示文件 diff、行内 AI 批注和 Review 建议。",
+      features: [
+        {icon: "files", title: "文件导航", description: "按优先级分组查看本次 PR 的关键文件。"},
+        {icon: "code", title: "Split Diff", description: "对比旧代码和新代码，阅读具体变更。"},
+        {icon: "message", title: "行内批注", description: "在具体代码行旁查看 AI 风险提示。"},
+        {icon: "file-text", title: "Review 建议", description: "复制可直接粘贴到 GitHub 的评论。"},
+      ],
+    },
+    overview: {
+      title: "概览",
+      description: "分析完成后，这里会展示 PR 摘要、上下文覆盖、文件统计、详细摘要和限制说明。",
+      features: [
+        {icon: "file-text", title: "PR 摘要", description: "查看本次 PR 的标题、模型、规模和总体说明。"},
+        {icon: "shield", title: "上下文覆盖", description: "了解哪些文件进入了深度上下文。"},
+        {icon: "files", title: "文件统计", description: "用表格比较文件状态、风险分和变更规模。"},
+        {icon: "message", title: "Review Comments", description: "汇总可复制的 Review 建议和限制说明。"},
+      ],
+    },
+    changed: {
+      title: "变更文件",
+      description: "分析完成后，这里会列出本次 PR 修改的全部文件，并展示文件状态、风险分和变更规模。",
+      features: [
+        {icon: "files", title: "文件列表", description: "查看本次 PR 改了哪些文件。"},
+        {icon: "layout", title: "文件状态", description: "区分新增、修改、删除、重命名。"},
+        {icon: "alert", title: "风险评分", description: "根据路径、类型和变更规模排序。"},
+        {icon: "code", title: "Patch 摘要", description: "展开查看文件级别的变更概况。"},
+      ],
+    },
+    audit: {
+      title: "审计",
+      description: "分析完成后，这里会展示规则预检、Reviewer 初审、Auditor 复核、误报降级和需要人工确认的问题。",
+      features: [
+        {icon: "shield", title: "规则预检", description: "AI 分析前先用固定规则扫描明显风险。"},
+        {icon: "code", title: "初审结果", description: "Reviewer 模型生成初步风险判断。"},
+        {icon: "chip", title: "审计复核", description: "Auditor 模型复核误报、漏报和置信度。"},
+        {icon: "alert", title: "人工确认", description: "标记需要开发者进一步判断的问题。"},
+      ],
+    },
+    ask: {
+      title: "AI 问答",
+      description: "分析完成后，你可以围绕当前 PR 继续追问风险原因、测试覆盖和 Review 建议。",
+      features: [
+        {icon: "message", title: "追问风险", description: "解释某条风险为什么成立。"},
+        {icon: "files", title: "追问文件", description: "询问某个文件为什么被判为高风险。"},
+        {icon: "shield", title: "追问测试", description: "检查是否缺少测试覆盖。"},
+        {icon: "file-text", title: "生成总结", description: "生成可复制的 Review 总结。"},
+      ],
+    },
+  };
+  return configs[tab] || configs.result;
+}
+
+function renderFeatureIntroPanel(config) {
+  return `<section class="feature-intro-panel">
+    <div class="feature-intro-copy">
+      <span class="eyebrow">ReviewPilot</span>
+      <h2>${escapeHtml(config.title)}</h2>
+      <p>${escapeHtml(config.description)}</p>
+    </div>
+    <div class="feature-intro-grid">
+      ${config.features.map(item => `<article class="feature-intro-card">
+        <span class="feature-intro-icon">${renderIcon(item.icon)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <p>${escapeHtml(item.description)}</p>
+      </article>`).join("")}
+    </div>
+  </section>`;
 }
 
 function deriveReportRiskLevel(risks) {
@@ -1257,12 +1381,34 @@ function renderTopPriorityList(data, fileChanges, risks) {
     const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
     const path = splitFilePath(item.filename || file.filename || "unknown");
     const reason = item.reason || (item.risk_reasons || [])[0] || "这处改动值得先看一遍";
-    return `<button class="priority-card ${level}" type="button" data-priority-file="${escapeHtmlAttr(item.filename || file.filename || "")}">
+    const filename = item.filename || file.filename || "";
+    return `<button class="priority-card ${level}" type="button" data-priority-file="${escapeHtmlAttr(filename)}" title="${escapeHtmlAttr(filename)}">
       <span class="rank">${index + 1}</span>
-      <div><strong>${escapeHtml(path.name)}</strong><small>${escapeHtml(path.dir || ".")}</small><p>${escapeHtml(reason)}</p></div>
+      <div class="priority-card-main">
+        <strong title="${escapeHtmlAttr(path.name)}">${escapeHtml(path.name)}</strong>
+        <small title="${escapeHtmlAttr(path.dir || ".")}">${escapeHtml(path.dir || ".")}</small>
+        <p title="${escapeHtmlAttr(reason)}">${escapeHtml(reason)}</p>
+      </div>
       <span class="badge ${level}">${riskLevelText(level)}</span>
     </button>`;
   }).join("");
+}
+
+function renderRiskOverview(risks, data = {}) {
+  const counts = {
+    high: risks.filter(item => item.risk_level === "high").length,
+    medium: risks.filter(item => item.risk_level === "medium").length,
+    low: risks.filter(item => item.risk_level === "low").length,
+    human: risks.filter(item => item.type === "needs_human_check" || item.audit_status === "needs_human_check" || item.audit_status === "downgraded").length,
+    dismissed: (data.final_result?.dismissed_risks || []).length + risks.filter(item => item.audit_status === "removed").length,
+  };
+  return `<div class="risk-overview-grid">
+    <article><span>高风险</span><strong class="risk-red">${counts.high}</strong></article>
+    <article><span>中风险</span><strong class="risk-amber">${counts.medium}</strong></article>
+    <article><span>低风险</span><strong class="risk-green">${counts.low}</strong></article>
+    <article><span>需要人工确认</span><strong>${counts.human}</strong></article>
+    <article><span>已忽略 / 已降级</span><strong>${counts.dismissed}</strong></article>
+  </div>`;
 }
 
 function renderIssueRow(item) {
@@ -1282,8 +1428,8 @@ function renderReport(data) {
   isDrawerOpen = false;
   emptyReport.classList.add("hidden");
   reportContent.classList.remove("hidden");
-  setSidebarActive("code_review");
-  setReportTab("code");
+  setSidebarActive("result_visualization");
+  setReportTab("result");
   const fileChanges = data.file_changes || data.files || [];
   const risks = getReportRisks(data);
   const modules = data.final_result?.changed_modules || data.changed_modules || [];
@@ -1326,6 +1472,7 @@ function renderReport(data) {
   inlineIssueList.innerHTML = risks.length ? risks.map(renderIssueRow).join("") : empty("当前没有发现明确风险。");
   overviewBox.innerHTML = renderOverview(overview, modelLabel);
   if (overviewRadarBox) overviewRadarBox.innerHTML = renderOverviewRadar(score, risks);
+  if (riskOverviewBox) riskOverviewBox.innerHTML = renderRiskOverview(risks, data);
   coverageBox.innerHTML = renderCoverage(coverage);
   filesBox.innerHTML = fileChanges.length ? renderFileStatsTable(fileChanges, data) : empty("暂无文件");
   priorityFilesBox.innerHTML = priorityFiles.length ? renderPriorityTable(priorityFiles) : empty("暂无风险排序结果");
@@ -1344,12 +1491,22 @@ function renderReport(data) {
 
 function renderAskPanel(scope, historyId, threads) {
   const refs = askRefs(scope);
-  refs.panel.classList.toggle("hidden", !historyId);
+  refs.panel.classList.remove("hidden");
+  refs.panel.classList.toggle("ask-disabled", !historyId);
   refs.panel.dataset.historyId = historyId || "";
+  if (refs.question) {
+    refs.question.disabled = !historyId;
+    refs.question.placeholder = historyId
+      ? "继续提问关于本次 PR 的问题，例如：这个风险为什么成立？"
+      : "当前报告还没有可追问的历史 ID，请重新分析后再提问。";
+  }
+  if (refs.sendBtn) refs.sendBtn.disabled = !historyId;
   refs.suggestions.innerHTML = askSuggestions.map(question =>
     `<button type="button" data-ask-scope="${scope}" data-ask-suggestion="${escapeHtmlAttr(question)}">${escapeHtml(question)}</button>`
   ).join("");
-  refs.threads.innerHTML = threads.length ? threads.map(renderAskThread).join("") : renderAskEmptyState();
+  refs.threads.innerHTML = historyId
+    ? (threads.length ? threads.map(renderAskThread).join("") : renderAskEmptyState())
+    : renderAskUnavailableState();
   if (refs.context) refs.context.innerHTML = renderAskContext(threads[threads.length - 1]);
 }
 
@@ -1443,6 +1600,13 @@ function renderAskEmptyState() {
   return `<div class="ask-empty-state">
     <strong>你可以围绕本次 PR 继续提问</strong>
     <p>例如风险原因、测试覆盖、人工复核重点，回答只基于当前 Review 报告和已有上下文。</p>
+  </div>`;
+}
+
+function renderAskUnavailableState() {
+  return `<div class="ask-empty-state">
+    <strong>当前报告暂时不能追问</strong>
+    <p>Ask PR 需要基于已保存的历史记录回答。请重新分析一次 PR，系统保存报告后就可以继续追问。</p>
   </div>`;
 }
 
@@ -2053,7 +2217,11 @@ function renderFileStatsTable(files, report) {
 }
 
 function renderChangedFilesPage(report) {
-  if (!changedFilesBox || !report) return;
+  if (!changedFilesBox) return;
+  if (!report) {
+    changedFilesBox.innerHTML = empty("当前报告暂无文件变更数据。");
+    return;
+  }
   const fileChanges = report.file_changes || report.files || [];
   const priority = report.priority_files || report.risk_ranking || [];
   const diffs = report.file_diffs || [];
@@ -2088,7 +2256,7 @@ function renderChangedFilesPage(report) {
     return true;
   });
   if (!fileChanges.length) {
-    changedFilesBox.innerHTML = empty("当前报告没有文件变更统计。");
+    changedFilesBox.innerHTML = empty("当前报告暂无文件变更数据。");
     return;
   }
   if (!rows.length) {
@@ -2461,6 +2629,10 @@ function setReportTab(tab) {
   document.querySelectorAll("[data-report-tab]").forEach(button => {
     button.classList.toggle("active", button.dataset.reportTab === tab);
   });
+  if (!hasReport) {
+    renderFeatureIntro(tab);
+    return;
+  }
   document.querySelectorAll("[data-report-panel]").forEach(panel => {
     panel.classList.toggle("hidden", panel.dataset.reportPanel !== tab);
   });
@@ -2480,20 +2652,21 @@ function sidebarKeyForRoute(route) {
     "/history": "history",
     "/settings/models": "model_settings",
     "/settings/rules": "system_settings",
-    "/review": sidebarActiveKey || "code_review",
+    "/review": sidebarActiveKey || "result_visualization",
   };
-  return map[route] || sidebarActiveKey;
+  return map[route] || sidebarActiveKey || "result_visualization";
 }
 
 function sidebarKeyForReportTab(tab) {
   const map = {
+    result: "result_visualization",
     code: "code_review",
     changed: "changed_files",
-    overview: "summary",
+    overview: "overview",
     audit: "audit",
     ask: "ask",
   };
-  return map[tab] || "code_review";
+  return map[tab] || "result_visualization";
 }
 
 function safeFilename(value) {
@@ -2554,7 +2727,8 @@ function startProgress(title, text) {
   progressModalText.textContent = text || "当前阶段：准备分析";
   clearInterval(progressTimer);
   progressStepIndex = 0;
-  setProgressState({task_id: "", progress: 10, current_stage: "fetch_pr"});
+  progressState = null;
+  updateProgressSafely(8, "fetch_pr", {task_id: ""});
   progressTimer = setInterval(() => {
     const steps = [
       {progress: 25, stage: "parse_diff"},
@@ -2566,19 +2740,19 @@ function startProgress(title, text) {
     const next = steps[progressStepIndex];
     if (!next) return;
     progressStepIndex += 1;
-    setProgressState({progress: next.progress, current_stage: next.stage});
+    updateProgressSafely(next.progress, next.stage);
   }, 1200);
 }
 
 function updateProgress(value, text) {
   if (text) progressModalText.textContent = text;
-  setProgressState({progress: value, current_stage: progressStageForPercent(value)});
+  updateProgressSafely(value, progressStageForPercent(value));
 }
 
 function finishProgress(title, text) {
   clearInterval(progressTimer);
   progressModalText.textContent = text || "报告已生成。";
-  setProgressState({progress: 100, current_stage: "finalize"});
+  updateProgressSafely(100, "finalize");
   setTimeout(() => progressModal.classList.add("hidden"), 500);
 }
 
@@ -2586,6 +2760,16 @@ function stopProgress() {
   clearInterval(progressTimer);
   setProgressState({progress: progressState?.progress || 0, current_stage: progressState?.current_stage || "fetch_pr", failed: true});
   setTimeout(() => progressModal.classList.add("hidden"), 900);
+}
+
+function updateProgressSafely(nextProgress, nextStage, extra = {}) {
+  const previousProgress = Number(progressState?.progress || 0);
+  const incomingProgress = Number(nextProgress || 0);
+  setProgressState({
+    ...extra,
+    progress: Math.max(previousProgress, incomingProgress),
+    current_stage: nextStage || progressState?.current_stage || "fetch_pr",
+  });
 }
 
 function progressStageForPercent(value) {
@@ -2599,17 +2783,24 @@ function progressStageForPercent(value) {
 }
 
 function setProgressState(partial) {
-  const current = partial.current_stage || progressState?.current_stage || "fetch_pr";
-  const currentIndex = reviewProgressStages.findIndex(stage => stage.key === current);
+  const previousProgress = Number(progressState?.progress || 0);
+  const requestedProgress = Number(partial.progress ?? previousProgress);
+  const progress = partial.failed ? previousProgress : Math.max(previousProgress, requestedProgress);
+  const requestedStage = partial.current_stage || progressState?.current_stage || "fetch_pr";
+  const requestedIndex = Math.max(0, reviewProgressStages.findIndex(stage => stage.key === requestedStage));
+  const previousIndex = Math.max(0, reviewProgressStages.findIndex(stage => stage.key === progressState?.current_stage));
+  const progressIndex = Math.max(0, reviewProgressStages.findIndex(stage => stage.key === progressStageForPercent(progress)));
+  const currentIndex = partial.failed ? previousIndex : Math.max(previousIndex, requestedIndex, progressIndex);
+  const current = reviewProgressStages[currentIndex]?.key || requestedStage;
   progressState = {
     task_id: partial.task_id ?? progressState?.task_id ?? "",
-    progress: partial.progress ?? progressState?.progress ?? 0,
+    progress,
     current_stage: current,
     stages: reviewProgressStages.map((stage, index) => ({
       ...stage,
       status: partial.failed && stage.key === current
         ? "failed"
-        : index < currentIndex || partial.progress >= 100
+        : index < currentIndex || progress >= 100
           ? "done"
           : index === currentIndex
             ? "running"
